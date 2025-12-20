@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Next.js
+.next/
+out/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data (runtime)
+workspaces/
+data/
+*.db
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+*.tgz
