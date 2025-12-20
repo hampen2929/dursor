@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./workspaces:/app/workspaces
+      - ./data:/app/data
+    environment:
+      - DURSOR_HOST=0.0.0.0
+      - DURSOR_PORT=8000
+      - DURSOR_DEBUG=false
+      - DURSOR_ENCRYPTION_KEY=${DURSOR_ENCRYPTION_KEY}
+      - DURSOR_GITHUB_PAT=${DURSOR_GITHUB_PAT}
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  workspaces:
+  data:

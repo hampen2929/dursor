@@ -1,0 +1,68 @@
+"""Pull Request routes."""
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from dursor_api.domain.models import PR, PRCreate, PRCreated, PRUpdate, PRUpdated
+from dursor_api.dependencies import get_pr_service
+from dursor_api.services.pr_service import PRService
+
+router = APIRouter(tags=["prs"])
+
+
+@router.post("/tasks/{task_id}/prs", response_model=PRCreated, status_code=201)
+async def create_pr(
+    task_id: str,
+    data: PRCreate,
+    pr_service: PRService = Depends(get_pr_service),
+) -> PRCreated:
+    """Create a Pull Request from a run."""
+    try:
+        pr = await pr_service.create(task_id, data)
+        return PRCreated(
+            pr_id=pr.id,
+            url=pr.url,
+            branch=pr.branch,
+            number=pr.number,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/tasks/{task_id}/prs/{pr_id}/update", response_model=PRUpdated)
+async def update_pr(
+    task_id: str,
+    pr_id: str,
+    data: PRUpdate,
+    pr_service: PRService = Depends(get_pr_service),
+) -> PRUpdated:
+    """Update a Pull Request with a new run."""
+    try:
+        pr = await pr_service.update(task_id, pr_id, data)
+        return PRUpdated(
+            url=pr.url,
+            latest_commit=pr.latest_commit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/tasks/{task_id}/prs/{pr_id}", response_model=PR)
+async def get_pr(
+    task_id: str,
+    pr_id: str,
+    pr_service: PRService = Depends(get_pr_service),
+) -> PR:
+    """Get a Pull Request by ID."""
+    pr = await pr_service.get(task_id, pr_id)
+    if not pr:
+        raise HTTPException(status_code=404, detail="PR not found")
+    return pr
+
+
+@router.get("/tasks/{task_id}/prs", response_model=list[PR])
+async def list_prs(
+    task_id: str,
+    pr_service: PRService = Depends(get_pr_service),
+) -> list[PR]:
+    """List Pull Requests for a task."""
+    return await pr_service.list(task_id)
