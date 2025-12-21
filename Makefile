@@ -18,7 +18,7 @@ install: install-api install-web
 
 # Local development - run servers
 dev-api:
-	cd apps/api && python -m dursor_api.main
+	cd apps/api && PYTHONPATH=src python -m dursor_api.main
 
 dev-web:
 	cd apps/web && npm run dev
@@ -27,5 +27,5 @@ dev-web:
 dev:
 	@echo "Starting API and Web servers..."
 	@trap 'kill 0' EXIT; \
-	(cd apps/api && python -m dursor_api.main) & \
+	(cd apps/api && PYTHONPATH=src python -m dursor_api.main) & \
 	(cd apps/web && npm run dev)
