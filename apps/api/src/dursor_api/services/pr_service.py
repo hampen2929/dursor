@@ -107,12 +107,18 @@ class PRService:
         patch_file = workspace_path / ".dursor_patch.diff"
         try:
             patch_file.write_text(run.patch)
-            subprocess.run(
+            result = subprocess.run(
                 ["git", "apply", str(patch_file)],
                 cwd=workspace_path,
-                check=True,
                 capture_output=True,
+                text=True,
             )
+            if result.returncode != 0:
+                # Clean up: switch back to default branch and delete the created branch
+                repo.heads[repo_obj.default_branch].checkout()
+                repo.delete_head(branch_name, force=True)
+                error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error"
+                raise ValueError(f"Failed to apply patch: {error_msg}")
         finally:
             patch_file.unlink(missing_ok=True)
 
@@ -207,12 +213,17 @@ class PRService:
         patch_file = workspace_path / ".dursor_patch.diff"
         try:
             patch_file.write_text(run.patch)
-            subprocess.run(
+            result = subprocess.run(
                 ["git", "apply", str(patch_file)],
                 cwd=workspace_path,
-                check=True,
                 capture_output=True,
+                text=True,
             )
+            if result.returncode != 0:
+                # Switch back to default branch
+                repo.heads[repo_obj.default_branch].checkout()
+                error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error"
+                raise ValueError(f"Failed to apply patch: {error_msg}")
         finally:
             patch_file.unlink(missing_ok=True)
 
