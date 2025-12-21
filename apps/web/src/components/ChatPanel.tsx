@@ -84,8 +84,8 @@ export function ChatPanel({
             key={msg.id}
             className={`p-3 rounded-lg ${
               msg.role === 'user'
-                ? 'bg-blue-900/30 border border-blue-800 ml-8'
-                : 'bg-gray-800 mr-8'
+                ? 'bg-blue-900/30 border border-blue-800'
+                : 'bg-gray-800'
             }`}
           >
             <div className="text-xs text-gray-500 mb-1 capitalize">
