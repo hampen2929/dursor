@@ -108,7 +108,7 @@ class PRService:
         try:
             patch_file.write_text(run.patch)
             result = subprocess.run(
-                ["git", "apply", str(patch_file)],
+                ["git", "apply", "--whitespace=fix", str(patch_file)],
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
@@ -214,7 +214,7 @@ class PRService:
         try:
             patch_file.write_text(run.patch)
             result = subprocess.run(
-                ["git", "apply", str(patch_file)],
+                ["git", "apply", "--whitespace=fix", str(patch_file)],
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
