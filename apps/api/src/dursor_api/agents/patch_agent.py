@@ -275,9 +275,10 @@ class PatchAgent(BaseAgent):
         Returns:
             Extracted patch string.
         """
-        # Remove markdown code blocks if present
+        # Remove leading/trailing whitespace first
         response = response.strip()
 
+        # Remove markdown code blocks if present
         if response.startswith("```diff"):
             response = response[7:]
         elif response.startswith("```"):
@@ -286,7 +287,13 @@ class PatchAgent(BaseAgent):
         if response.endswith("```"):
             response = response[:-3]
 
-        return response.strip()
+        # Strip leading whitespace, but preserve content
+        response = response.lstrip()
+
+        # Ensure patch ends with exactly one newline (required by unified diff format)
+        response = response.rstrip() + "\n"
+
+        return response
 
     def _parse_patch(self, patch: str) -> list[FileDiff]:
         """Parse unified diff patch to extract file changes.
