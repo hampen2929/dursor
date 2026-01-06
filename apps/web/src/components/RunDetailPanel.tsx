@@ -129,9 +129,23 @@ export function RunDetailPanel({
               {run.executor_type === 'claude_code' ? (
                 run.working_branch && (
                   <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(run.working_branch!);
-                      success('Branch name copied!');
+                    onClick={async () => {
+                      try {
+                        if (navigator.clipboard) {
+                          await navigator.clipboard.writeText(run.working_branch!);
+                        } else {
+                          // Fallback for non-secure contexts
+                          const textarea = document.createElement('textarea');
+                          textarea.value = run.working_branch!;
+                          document.body.appendChild(textarea);
+                          textarea.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(textarea);
+                        }
+                        success('Branch name copied!');
+                      } catch {
+                        error('Failed to copy to clipboard');
+                      }
                     }}
                     className="flex items-center gap-1 text-xs font-mono text-purple-400 hover:text-purple-300 transition-colors"
                     title="Click to copy branch name"
