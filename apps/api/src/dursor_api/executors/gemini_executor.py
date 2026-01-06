@@ -55,11 +55,14 @@ class GeminiExecutor:
         env.update(self.options.env_vars)
 
         # Build command
-        # Gemini CLI: gemini -p "prompt"
+        # Gemini CLI: gemini "prompt" --yolo
+        # --yolo = auto-approve all actions
+        # Note: -p flag is deprecated, use positional prompt instead
         # See: https://github.com/google-gemini/gemini-cli
         cmd = [
             self.options.gemini_cli_path,
-            "-p", instruction,
+            instruction,
+            "--yolo",
         ]
 
         logs.append(f"Executing: {' '.join(cmd)}")

@@ -55,13 +55,13 @@ class CodexExecutor:
         env.update(self.options.env_vars)
 
         # Build command
-        # Codex CLI: codex "prompt" --approval-mode full-auto --quiet
+        # Codex CLI: codex "prompt" --full-auto
+        # --full-auto = -a on-request + --sandbox workspace-write
         # See: https://github.com/openai/codex
         cmd = [
             self.options.codex_cli_path,
             instruction,
-            "--approval-mode", "full-auto",
-            "--quiet",
+            "--full-auto",
         ]
 
         logs.append(f"Executing: {' '.join(cmd)}")
