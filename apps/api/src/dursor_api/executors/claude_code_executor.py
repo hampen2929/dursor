@@ -66,7 +66,7 @@ class ClaudeCodeExecutor:
         # Prepare environment
         env = os.environ.copy()
         env.update(self.options.env_vars)
-        env["HOME"] = str(worktree_path)  # Isolate home directory
+        # Note: Don't change HOME as Claude CLI needs access to ~/.claude for auth
 
         # Build command
         # Use --print to get output in a machine-readable format
