@@ -177,6 +177,10 @@ export function ChatCodeView({
     .map((msg, idx) => (msg.role === 'user' ? idx : -1))
     .filter((idx) => idx !== -1);
 
+  // Reverse runs to match chronological order of messages
+  // (API returns runs newest-first, but messages are oldest-first)
+  const sortedRuns = [...runs].reverse();
+
   // Get runs for a specific user message (by user message order, 0-indexed)
   const getRunsForUserMessage = (msgIndex: number): Run[] => {
     // Find which user message this is (0-indexed among user messages)
@@ -184,14 +188,14 @@ export function ChatCodeView({
     if (userMsgOrder === -1) return [];
 
     const totalUserMessages = userMessageIndices.length;
-    if (totalUserMessages === 0 || runs.length === 0) return [];
+    if (totalUserMessages === 0 || sortedRuns.length === 0) return [];
 
     // Distribute runs evenly across user messages
-    const runsPerMessage = Math.ceil(runs.length / totalUserMessages);
+    const runsPerMessage = Math.ceil(sortedRuns.length / totalUserMessages);
     const startIdx = userMsgOrder * runsPerMessage;
-    const endIdx = Math.min(startIdx + runsPerMessage, runs.length);
+    const endIdx = Math.min(startIdx + runsPerMessage, sortedRuns.length);
 
-    return runs.slice(startIdx, endIdx);
+    return sortedRuns.slice(startIdx, endIdx);
   };
 
   return (
