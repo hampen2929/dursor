@@ -455,7 +455,7 @@ class RunDAO:
         provider = Provider(row["provider"]) if row["provider"] else None
 
         # Handle executor_type with default for backward compatibility
-        executor_type = ExecutorType(row["executor_type"]) if row.get("executor_type") else ExecutorType.PATCH_AGENT
+        executor_type = ExecutorType(row["executor_type"]) if row["executor_type"] else ExecutorType.PATCH_AGENT
 
         return Run(
             id=row["id"],
@@ -464,8 +464,8 @@ class RunDAO:
             model_name=row["model_name"],
             provider=provider,
             executor_type=executor_type,
-            working_branch=row.get("working_branch"),
-            worktree_path=row.get("worktree_path"),
+            working_branch=row["working_branch"],
+            worktree_path=row["worktree_path"],
             instruction=row["instruction"],
             base_ref=row["base_ref"],
             status=RunStatus(row["status"]),
