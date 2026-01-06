@@ -36,6 +36,7 @@ class GeminiExecutor:
         worktree_path: Path,
         instruction: str,
         on_output: Callable[[str], Awaitable[None]] | None = None,
+        resume_session_id: str | None = None,
     ) -> ExecutorResult:
         """Execute gemini CLI with the given instruction.
 
@@ -43,10 +44,13 @@ class GeminiExecutor:
             worktree_path: Path to the git worktree.
             instruction: Natural language instruction for Gemini.
             on_output: Optional callback for streaming output.
+            resume_session_id: Optional session ID (not yet supported by Gemini CLI).
 
         Returns:
             ExecutorResult with success status, patch, and logs.
         """
+        # Note: Gemini CLI does not currently support session persistence
+        # The resume_session_id parameter is included for interface compatibility
         logs: list[str] = []
         output_lines: list[str] = []
 
