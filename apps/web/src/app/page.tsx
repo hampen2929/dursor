@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
-import { reposApi, tasksApi, modelsApi, githubApi, preferencesApi } from '@/lib/api';
+import { reposApi, tasksApi, runsApi, modelsApi, githubApi, preferencesApi } from '@/lib/api';
 import type { GitHubRepository, ExecutorType } from '@/types';
 import { useToast } from '@/components/ui/Toast';
 import { cn } from '@/lib/utils';
@@ -23,7 +23,7 @@ import {
 export default function HomePage() {
   const router = useRouter();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { error: toastError } = useToast();
+  const { error: toastError, success: toastSuccess } = useToast();
   const submitShortcut = useShortcutText('Enter');
 
   const [instruction, setInstruction] = useState('');
@@ -124,7 +124,8 @@ export default function HomePage() {
 
   const handleSubmit = async () => {
     // Validate based on executor type
-    if (!instruction.trim() || !selectedRepo || !selectedBranch) {
+    const trimmedInstruction = instruction.trim();
+    if (!trimmedInstruction || !selectedRepo || !selectedBranch) {
       return;
     }
     if (executorType === 'patch_agent' && selectedModels.length === 0) {
@@ -145,14 +146,40 @@ export default function HomePage() {
       // Create a new task
       const task = await tasksApi.create({
         repo_id: repo.id,
-        title: instruction.slice(0, 50) + (instruction.length > 50 ? '...' : ''),
+        title:
+          trimmedInstruction.slice(0, 50) + (trimmedInstruction.length > 50 ? '...' : ''),
       });
 
       // Add the instruction as the first message
       await tasksApi.addMessage(task.id, {
         role: 'user',
-        content: instruction,
+        content: trimmedInstruction,
       });
+
+      // Start a run immediately (matches expected ↑ behavior)
+      try {
+        if (executorType === 'claude_code') {
+          await runsApi.create(task.id, {
+            instruction: trimmedInstruction,
+            executor_type: 'claude_code',
+          });
+          toastSuccess('Started Claude Code run');
+        } else {
+          await runsApi.create(task.id, {
+            instruction: trimmedInstruction,
+            model_ids: selectedModels,
+            executor_type: 'patch_agent',
+          });
+          toastSuccess(
+            `Started ${selectedModels.length} run${selectedModels.length > 1 ? 's' : ''}`
+          );
+        }
+      } catch (runErr) {
+        // If run start fails, still navigate to the task so user can retry from there.
+        const runMessage =
+          runErr instanceof Error ? runErr.message : 'Failed to start run';
+        toastError(runMessage);
+      }
 
       // Navigate to the task page with executor type
       const params = new URLSearchParams();
