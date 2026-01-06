@@ -264,7 +264,8 @@ export function ChatPanel({
             )}
             disabled={loading}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && isModifierPressed(e)) {
+              if ((e.key === 'Enter' && isModifierPressed(e)) || e.key === 'ArrowUp') {
+                e.preventDefault();
                 handleSubmit(e);
               }
             }}
