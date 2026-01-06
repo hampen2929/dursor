@@ -226,42 +226,12 @@ export default function HomePage() {
                 </button>
 
                 {showModelDropdown && (
-                  <div className="absolute bottom-full left-0 mb-2 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-10 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                    {/* Claude Code Option */}
-                    <div className="border-b border-gray-700">
-                      <button
-                        onClick={() => {
-                          setExecutorType('claude_code');
-                          setSelectedModels([]);
-                          setShowModelDropdown(false);
-                        }}
-                        className={cn(
-                          'w-full px-3 py-2.5 text-left flex items-center gap-3',
-                          'hover:bg-gray-700 transition-colors',
-                          'focus:outline-none focus:bg-gray-700'
-                        )}
-                      >
-                        <div className={cn(
-                          'w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0',
-                          executorType === 'claude_code' ? 'bg-blue-600 border-blue-600' : 'border-gray-600'
-                        )}>
-                          {executorType === 'claude_code' && <CheckIcon className="w-3 h-3 text-white" />}
-                        </div>
-                        <div className="min-w-0 flex-1 flex items-center gap-2">
-                          <CommandLineIcon className="w-4 h-4 text-gray-400" />
-                          <div>
-                            <div className="text-gray-100 text-sm font-medium">Claude Code</div>
-                            <div className="text-gray-500 text-xs">Use Claude Code CLI</div>
-                          </div>
-                        </div>
-                      </button>
-                    </div>
-
-                    {/* Models Section */}
-                    <div className="p-3 border-b border-gray-700">
-                      <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">Models</span>
-                    </div>
-                    <div className="max-h-60 overflow-y-auto">
+                  <div className="absolute bottom-full left-0 mb-2 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-10 animate-in fade-in slide-in-from-bottom-2 duration-200 flex flex-col max-h-80">
+                    {/* Models Section (scrollable) */}
+                    <div className="flex-1 overflow-y-auto min-h-0">
+                      <div className="p-3 border-b border-gray-700 sticky top-0 bg-gray-800">
+                        <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">Models</span>
+                      </div>
                       {!models || models.length === 0 ? (
                         <div className="p-4 text-center">
                           <CpuChipIcon className="w-8 h-8 text-gray-600 mx-auto mb-2" />
@@ -300,6 +270,36 @@ export default function HomePage() {
                           );
                         })
                       )}
+                    </div>
+
+                    {/* Claude Code Option (fixed at bottom) */}
+                    <div className="border-t border-gray-700 flex-shrink-0">
+                      <button
+                        onClick={() => {
+                          setExecutorType('claude_code');
+                          setSelectedModels([]);
+                          setShowModelDropdown(false);
+                        }}
+                        className={cn(
+                          'w-full px-3 py-2.5 text-left flex items-center gap-3',
+                          'hover:bg-gray-700 transition-colors',
+                          'focus:outline-none focus:bg-gray-700'
+                        )}
+                      >
+                        <div className={cn(
+                          'w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0',
+                          executorType === 'claude_code' ? 'bg-blue-600 border-blue-600' : 'border-gray-600'
+                        )}>
+                          {executorType === 'claude_code' && <CheckIcon className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="min-w-0 flex-1 flex items-center gap-2">
+                          <CommandLineIcon className="w-4 h-4 text-gray-400" />
+                          <div>
+                            <div className="text-gray-100 text-sm font-medium">Claude Code</div>
+                            <div className="text-gray-500 text-xs">Use Claude Code CLI</div>
+                          </div>
+                        </div>
+                      </button>
                     </div>
                   </div>
                 )}
