@@ -172,14 +172,26 @@ export function ChatCodeView({
     setRunTabs((prev) => ({ ...prev, [runId]: tab }));
   };
 
-  // Find the last user message index
-  const lastUserMessageIndex = messages.reduce((lastIdx, msg, idx) =>
-    msg.role === 'user' ? idx : lastIdx, -1
-  );
+  // Calculate runs per user message for distribution
+  const userMessageIndices = messages
+    .map((msg, idx) => (msg.role === 'user' ? idx : -1))
+    .filter((idx) => idx !== -1);
 
-  // Show runs only after the last user message
-  const shouldShowRunsAfter = (msgIndex: number): boolean => {
-    return msgIndex === lastUserMessageIndex;
+  // Get runs for a specific user message (by user message order, 0-indexed)
+  const getRunsForUserMessage = (msgIndex: number): Run[] => {
+    // Find which user message this is (0-indexed among user messages)
+    const userMsgOrder = userMessageIndices.indexOf(msgIndex);
+    if (userMsgOrder === -1) return [];
+
+    const totalUserMessages = userMessageIndices.length;
+    if (totalUserMessages === 0 || runs.length === 0) return [];
+
+    // Distribute runs evenly across user messages
+    const runsPerMessage = Math.ceil(runs.length / totalUserMessages);
+    const startIdx = userMsgOrder * runsPerMessage;
+    const endIdx = Math.min(startIdx + runsPerMessage, runs.length);
+
+    return runs.slice(startIdx, endIdx);
   };
 
   return (
@@ -222,8 +234,8 @@ export function ChatCodeView({
                   </div>
                 </div>
 
-                {/* Runs after this message */}
-                {shouldShowRunsAfter(msgIndex) && runs.map((run) => (
+                {/* Runs after this user message */}
+                {getRunsForUserMessage(msgIndex).map((run) => (
                   <RunResultCard
                     key={run.id}
                     run={run}
