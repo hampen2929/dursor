@@ -56,9 +56,12 @@ export function ChatPanel({
     setCurrentExecutor(executorType);
   }, [executorType]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const canSubmit =
+    !loading && !!input.trim() && (currentExecutor !== 'patch_agent' || selectedModels.length > 0);
+
+  const submit = async () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
     if (currentExecutor === 'patch_agent' && selectedModels.length === 0) return;
 
     setLoading(true);
@@ -67,19 +70,19 @@ export function ChatPanel({
       // Add user message
       await tasksApi.addMessage(taskId, {
         role: 'user',
-        content: input.trim(),
+        content: trimmed,
       });
 
       // Create runs based on executor type
       if (currentExecutor === 'claude_code') {
         await runsApi.create(taskId, {
-          instruction: input.trim(),
+          instruction: trimmed,
           executor_type: 'claude_code',
         });
         success('Started Claude Code run');
       } else {
         await runsApi.create(taskId, {
-          instruction: input.trim(),
+          instruction: trimmed,
           model_ids: selectedModels,
           executor_type: 'patch_agent',
         });
@@ -94,6 +97,11 @@ export function ChatPanel({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submit();
   };
 
   const toggleModel = (modelId: string) => {
@@ -265,14 +273,34 @@ export function ChatPanel({
             disabled={loading}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && isModifierPressed(e)) {
-                handleSubmit(e);
+                e.preventDefault();
+                void submit();
+                return;
+              }
+
+              if (
+                e.key === 'ArrowUp' &&
+                !e.shiftKey &&
+                !e.altKey &&
+                !e.ctrlKey &&
+                !e.metaKey &&
+                canSubmit
+              ) {
+                // Only trigger when caret is at the end (avoids breaking arrow navigation mid-text).
+                const el = e.currentTarget;
+                const caretAtEnd =
+                  el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+                if (caretAtEnd) {
+                  e.preventDefault();
+                  void submit();
+                }
               }
             }}
             aria-label="Instructions input"
           />
           <Button
             type="submit"
-            disabled={loading || !input.trim() || (currentExecutor === 'patch_agent' && selectedModels.length === 0)}
+            disabled={!canSubmit}
             isLoading={loading}
             className="self-end"
           >
@@ -281,7 +309,7 @@ export function ChatPanel({
         </div>
         <div className="flex items-center justify-between mt-2">
           <span className="text-xs text-gray-500">
-            {getShortcutText('Enter')} to submit
+            ↑ or {getShortcutText('Enter')} to submit
           </span>
           {currentExecutor === 'patch_agent' && selectedModels.length > 0 && (
             <span className="text-xs text-gray-500">
