@@ -154,15 +154,15 @@ export default function HomePage() {
         content: instruction,
       });
 
-      // Create runs immediately based on executor type
-      if (executorType === 'claude_code') {
+      // Create runs based on executor type
+      if (isCLIExecutor) {
         await runsApi.create(task.id, {
-          instruction: instruction.trim(),
-          executor_type: 'claude_code',
+          instruction: instruction,
+          executor_type: executorType,
         });
-      } else {
+      } else if (selectedModels.length > 0) {
         await runsApi.create(task.id, {
-          instruction: instruction.trim(),
+          instruction: instruction,
           model_ids: selectedModels,
           executor_type: 'patch_agent',
         });
