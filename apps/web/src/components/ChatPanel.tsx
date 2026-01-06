@@ -37,6 +37,7 @@ export function ChatPanel({
   const [currentExecutor, setCurrentExecutor] = useState<ExecutorType>(executorType);
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const { success, error } = useToast();
 
   // Auto-scroll to bottom
@@ -56,8 +57,8 @@ export function ChatPanel({
     setCurrentExecutor(executorType);
   }, [executorType]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent | React.KeyboardEvent) => {
+    e?.preventDefault();
     if (!input.trim()) return;
     if (currentExecutor === 'patch_agent' && selectedModels.length === 0) return;
 
@@ -248,7 +249,7 @@ export function ChatPanel({
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="border-t border-gray-800 p-3">
+      <form ref={formRef} onSubmit={handleSubmit} className="border-t border-gray-800 p-3">
         <div className="flex gap-2">
           <textarea
             value={input}
@@ -265,7 +266,12 @@ export function ChatPanel({
             disabled={loading}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && isModifierPressed(e)) {
-                handleSubmit(e);
+                e.preventDefault();
+                formRef.current?.requestSubmit();
+              }
+              if (e.key === 'ArrowUp' && input.trim()) {
+                e.preventDefault();
+                formRef.current?.requestSubmit();
               }
             }}
             aria-label="Instructions input"
@@ -281,7 +287,7 @@ export function ChatPanel({
         </div>
         <div className="flex items-center justify-between mt-2">
           <span className="text-xs text-gray-500">
-            {getShortcutText('Enter')} to submit
+            ↑ or {getShortcutText('Enter')} to submit
           </span>
           {currentExecutor === 'patch_agent' && selectedModels.length > 0 && (
             <span className="text-xs text-gray-500">
