@@ -172,6 +172,7 @@ class Run(BaseModel):
     executor_type: ExecutorType = ExecutorType.PATCH_AGENT
     working_branch: str | None = None
     worktree_path: str | None = None
+    session_id: str | None = None  # CLI session ID for conversation persistence
     instruction: str
     base_ref: str | None
     status: RunStatus

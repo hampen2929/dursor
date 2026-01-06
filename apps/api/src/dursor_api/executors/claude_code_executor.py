@@ -1,7 +1,9 @@
 """Claude Code CLI executor for running Claude Code in worktrees."""
 
 import asyncio
+import json
 import os
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +32,7 @@ class ExecutorResult:
     logs: list[str]
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
+    session_id: str | None = None  # CLI session ID for conversation persistence
 
 
 class ClaudeCodeExecutor:
@@ -48,6 +51,7 @@ class ClaudeCodeExecutor:
         worktree_path: Path,
         instruction: str,
         on_output: Callable[[str], Awaitable[None]] | None = None,
+        resume_session_id: str | None = None,
     ) -> ExecutorResult:
         """Execute claude CLI with the given instruction.
 
@@ -55,6 +59,7 @@ class ClaudeCodeExecutor:
             worktree_path: Path to the git worktree.
             instruction: Natural language instruction for Claude Code.
             on_output: Optional callback for streaming output.
+            resume_session_id: Optional session ID to resume a previous conversation.
 
         Returns:
             ExecutorResult with success status, patch, and logs.
@@ -68,13 +73,18 @@ class ClaudeCodeExecutor:
         # Note: Don't change HOME as Claude CLI needs access to ~/.claude for auth
 
         # Build command
-        # Use --print to get output in a machine-readable format
-        # Use -p for non-interactive mode with instruction
+        # Use --print (-p) for non-interactive mode with instruction
+        # Use --output-format json to get session ID in response
         cmd = [
             self.options.claude_cli_path,
             "-p", instruction,
-            "--output-format", "text",
+            "--output-format", "json",
         ]
+
+        # Add --resume flag if we have a previous session ID
+        if resume_session_id:
+            cmd.extend(["--resume", resume_session_id])
+            logs.append(f"Resuming session: {resume_session_id}")
 
         logs.append(f"Executing: {' '.join(cmd)}")
         logs.append(f"Working directory: {worktree_path}")
@@ -131,6 +141,9 @@ class ClaudeCodeExecutor:
                     error=f"Claude Code exited with code {process.returncode}",
                 )
 
+            # Extract session ID from JSON output
+            session_id = self._extract_session_id(output_lines)
+
             # Generate diff from git changes
             patch, files_changed = await self._generate_diff(worktree_path)
 
@@ -143,6 +156,7 @@ class ClaudeCodeExecutor:
                 patch=patch,
                 files_changed=files_changed,
                 logs=logs,
+                session_id=session_id,
             )
 
         except FileNotFoundError:
@@ -163,6 +177,39 @@ class ClaudeCodeExecutor:
                 logs=logs,
                 error=str(e),
             )
+
+    def _extract_session_id(self, output_lines: list[str]) -> str | None:
+        """Extract session ID from Claude CLI JSON output.
+
+        Args:
+            output_lines: Output lines from Claude CLI execution.
+
+        Returns:
+            Session ID if found, None otherwise.
+        """
+        # Claude CLI with --output-format json outputs JSON objects
+        # Look for session_id in the output
+        for line in output_lines:
+            try:
+                data = json.loads(line)
+                # Check for session_id in various possible formats
+                if isinstance(data, dict):
+                    if "session_id" in data:
+                        return data["session_id"]
+                    if "sessionId" in data:
+                        return data["sessionId"]
+            except json.JSONDecodeError:
+                continue
+
+        # Fallback: try to find session ID in combined output
+        combined = "\n".join(output_lines)
+        # Look for UUID pattern that might be a session ID
+        uuid_pattern = r'"session_id":\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"'
+        match = re.search(uuid_pattern, combined, re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+        return None
 
     async def _generate_diff(self, worktree_path: Path) -> tuple[str, list[FileDiff]]:
         """Generate diff from git changes in worktree.

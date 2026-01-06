@@ -201,6 +201,13 @@ class RunService:
         Returns:
             Created Run object.
         """
+        # Get the latest session ID for this task and executor type
+        # This enables conversation persistence across multiple runs
+        previous_session_id = await self.run_dao.get_latest_session_id(
+            task_id=task_id,
+            executor_type=executor_type,
+        )
+
         # Create the run record first (without worktree info)
         run = await self.run_dao.create(
             task_id=task_id,
@@ -229,8 +236,8 @@ class RunService:
         # Enqueue for execution based on executor type
         self.queue.enqueue(
             run.id,
-            lambda r=run, wt=worktree_info, et=executor_type: self._execute_cli_run(
-                r, wt, et
+            lambda r=run, wt=worktree_info, et=executor_type, ps=previous_session_id: self._execute_cli_run(
+                r, wt, et, ps
             ),
         )
 
@@ -370,7 +377,11 @@ class RunService:
             )
 
     async def _execute_cli_run(
-        self, run: Run, worktree_info: Any, executor_type: ExecutorType
+        self,
+        run: Run,
+        worktree_info: Any,
+        executor_type: ExecutorType,
+        resume_session_id: str | None = None,
     ) -> None:
         """Execute a CLI-based run (Claude Code, Codex, or Gemini).
 
@@ -378,6 +389,7 @@ class RunService:
             run: Run object.
             worktree_info: WorktreeInfo object with path and branch info.
             executor_type: Type of CLI executor to use.
+            resume_session_id: Optional session ID to resume a previous conversation.
         """
         logs: list[str] = []
 
@@ -396,13 +408,20 @@ class RunService:
 
             logs.append(f"Starting {executor_name} execution in {worktree_info.path}")
             logs.append(f"Working branch: {worktree_info.branch_name}")
+            if resume_session_id:
+                logs.append(f"Resuming session: {resume_session_id}")
 
-            # Execute the CLI
+            # Execute the CLI with session persistence
             result = await executor.execute(
                 worktree_path=worktree_info.path,
                 instruction=run.instruction,
                 on_output=lambda line: self._log_output(run.id, line),
+                resume_session_id=resume_session_id,
             )
+
+            # Save the session ID from the result for future runs
+            if result.session_id:
+                await self.run_dao.update_session_id(run.id, result.session_id)
 
             if result.success:
                 # Update run with results

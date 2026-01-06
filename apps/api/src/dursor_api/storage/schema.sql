@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS runs (
     executor_type TEXT NOT NULL DEFAULT 'patch_agent',  -- patch_agent, claude_code
     working_branch TEXT,             -- git branch for worktree (claude_code)
     worktree_path TEXT,              -- filesystem path to worktree (claude_code)
+    session_id TEXT,                 -- CLI session ID for conversation persistence
     instruction TEXT NOT NULL,
     base_ref TEXT,
     status TEXT NOT NULL DEFAULT 'queued',  -- queued, running, succeeded, failed, canceled

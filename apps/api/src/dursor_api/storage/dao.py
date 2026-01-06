@@ -310,6 +310,7 @@ class RunDAO:
         base_ref: str | None = None,
         working_branch: str | None = None,
         worktree_path: str | None = None,
+        session_id: str | None = None,
     ) -> Run:
         """Create a new run.
 
@@ -323,6 +324,7 @@ class RunDAO:
             base_ref: Base git ref.
             working_branch: Git branch for worktree (claude_code).
             worktree_path: Filesystem path to worktree (claude_code).
+            session_id: CLI session ID for conversation persistence.
 
         Returns:
             Created Run object.
@@ -332,13 +334,13 @@ class RunDAO:
 
         await self.db.connection.execute(
             """
-            INSERT INTO runs (id, task_id, model_id, model_name, provider, executor_type, working_branch, worktree_path, instruction, base_ref, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO runs (id, task_id, model_id, model_name, provider, executor_type, working_branch, worktree_path, session_id, instruction, base_ref, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 id, task_id, model_id, model_name,
                 provider.value if provider else None,
-                executor_type.value, working_branch, worktree_path,
+                executor_type.value, working_branch, worktree_path, session_id,
                 instruction, base_ref, RunStatus.QUEUED.value, created_at
             ),
         )
@@ -353,6 +355,7 @@ class RunDAO:
             executor_type=executor_type,
             working_branch=working_branch,
             worktree_path=worktree_path,
+            session_id=session_id,
             instruction=instruction,
             base_ref=base_ref,
             status=RunStatus.QUEUED,
@@ -447,6 +450,45 @@ class RunDAO:
         )
         await self.db.connection.commit()
 
+    async def update_session_id(self, id: str, session_id: str) -> None:
+        """Update run with session ID.
+
+        Args:
+            id: Run ID.
+            session_id: CLI session ID for conversation persistence.
+        """
+        await self.db.connection.execute(
+            "UPDATE runs SET session_id = ? WHERE id = ?",
+            (session_id, id),
+        )
+        await self.db.connection.commit()
+
+    async def get_latest_session_id(
+        self,
+        task_id: str,
+        executor_type: ExecutorType,
+    ) -> str | None:
+        """Get the latest session ID for a task and executor type.
+
+        Args:
+            task_id: Task ID.
+            executor_type: Type of executor.
+
+        Returns:
+            Session ID if found, None otherwise.
+        """
+        cursor = await self.db.connection.execute(
+            """
+            SELECT session_id FROM runs
+            WHERE task_id = ? AND executor_type = ? AND session_id IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (task_id, executor_type.value),
+        )
+        row = await cursor.fetchone()
+        return row["session_id"] if row else None
+
     def _row_to_model(self, row: Any) -> Run:
         files_changed = []
         if row["files_changed"]:
@@ -475,6 +517,7 @@ class RunDAO:
             executor_type=executor_type,
             working_branch=row["working_branch"],
             worktree_path=row["worktree_path"],
+            session_id=row["session_id"],
             instruction=row["instruction"],
             base_ref=row["base_ref"],
             status=RunStatus(row["status"]),

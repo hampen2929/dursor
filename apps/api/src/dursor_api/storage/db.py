@@ -38,6 +38,22 @@ class Database:
         await self._connection.executescript(schema)
         await self._connection.commit()
 
+        # Run migrations for existing databases
+        await self._run_migrations()
+
+    async def _run_migrations(self) -> None:
+        """Run database migrations for existing databases."""
+        # Migration: Add session_id column to runs table if it doesn't exist
+        cursor = await self._connection.execute("PRAGMA table_info(runs)")
+        columns = await cursor.fetchall()
+        column_names = [col["name"] for col in columns]
+
+        if "session_id" not in column_names:
+            await self._connection.execute(
+                "ALTER TABLE runs ADD COLUMN session_id TEXT"
+            )
+            await self._connection.commit()
+
     @property
     def connection(self) -> aiosqlite.Connection:
         """Get the database connection."""
