@@ -5,12 +5,13 @@ across WorktreeService and PRService, following the orchestrator management
 pattern defined in docs/git_operation_design.md.
 """
 
+from __future__ import annotations
+
 import asyncio
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
 
 import git
 

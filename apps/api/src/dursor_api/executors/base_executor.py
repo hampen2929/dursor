@@ -5,6 +5,8 @@ following the orchestrator management pattern where AI Agents only edit
 files and dursor manages git operations.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field

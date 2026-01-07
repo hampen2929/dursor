@@ -5,6 +5,8 @@ orchestrator management pattern where dursor centrally manages git
 operations while AI Agents only edit files.
 """
 
+from __future__ import annotations
+
 import asyncio
 import re
 from collections.abc import Awaitable, Callable
