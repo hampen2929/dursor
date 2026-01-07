@@ -109,12 +109,12 @@ class CodexExecutor:
         cmds: list[list[str]] = []
         if resume_session_id:
             logs.append(f"Continuing session: {resume_session_id}")
-            # Variant A: prompt first (matches upstream exec tests)
-            cmds.append([*base, instruction, "resume", resume_session_id, "--full-auto"])
-            # Variant B: resume subcommand first (some builds parse this way)
-            cmds.append([*base, "resume", resume_session_id, instruction, "--full-auto"])
-            # Variant C/D: put --full-auto before positional args
+            # Prefer this ordering (confirmed working with Codex v0.77.0):
+            #   codex exec --full-auto <PROMPT> resume <SESSION_ID>
             cmds.append([*base, "--full-auto", instruction, "resume", resume_session_id])
+            # Fallbacks for other parser behaviors:
+            cmds.append([*base, instruction, "resume", resume_session_id, "--full-auto"])
+            cmds.append([*base, "resume", resume_session_id, instruction, "--full-auto"])
             cmds.append([*base, "--full-auto", "resume", resume_session_id, instruction])
         else:
             cmds.append([*base, instruction, "--full-auto"])
