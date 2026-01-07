@@ -1,10 +1,10 @@
-# Git操作の配置戦略設計
+# Git Operation Placement Strategy Design
 
-## 概要
+## Overview
 
-本ドキュメントでは、dursor における git 操作（worktree, add, commit, push 等）の責任配置について設計方針を定義します。
+This document defines the design policy for placing git operations (worktree, add, commit, push, etc.) in dursor.
 
-## 現状の設計
+## Current Design
 
 ```mermaid
 graph TB
@@ -18,7 +18,7 @@ graph TB
     WS -->|git worktree remove| GIT
     WS -->|git fetch| GIT
     
-    EX -->|CLI実行| CLI[AI Agent CLI]
+    EX -->|Run CLI| CLI[AI Agent CLI]
     EX -->|git add -A| GIT
     
     PR -->|git checkout -b| GIT
@@ -27,21 +27,21 @@ graph TB
     PR -->|git push| GIT
 ```
 
-現在、git 操作は以下のコンポーネントに分散しています：
+Currently, git operations are distributed across the following components:
 
-| コンポーネント | 担当する git 操作 |
-|--------------|-----------------|
+| Component | Git Operations |
+|-----------|---------------|
 | `WorktreeService` | `git worktree add/remove`, `git fetch` |
-| 各 `Executor` | `git add -A`（diff取得用） |
+| Each `Executor` | `git add -A` (for diff generation) |
 | `PRService` | `git checkout -b`, `git add`, `git commit`, `git push` |
 
 ---
 
-## 設計アプローチの比較
+## Design Approach Comparison
 
-### A: Agent に git 操作を任せる
+### A: Delegate Git Operations to Agent
 
-AI Agent（Claude Code, Codex, Gemini）が直接 git commit/push を実行する方式。
+A method where AI Agents (Claude Code, Codex, Gemini) directly execute git commit/push.
 
 ```mermaid
 sequenceDiagram
@@ -50,31 +50,31 @@ sequenceDiagram
     participant A as AI Agent
     participant G as Git
 
-    U->>D: タスク作成
+    U->>D: Create task
     D->>G: git worktree add
-    D->>A: 指示を送信
-    A->>G: ファイル編集
+    D->>A: Send instruction
+    A->>G: Edit files
     A->>G: git add
     A->>G: git commit
     A->>G: git push
-    A->>D: 完了通知
-    D->>U: 結果表示
+    A->>D: Completion notification
+    D->>U: Show results
 ```
 
-**メリット:**
-- Agent の自律性を活かせる
-- Agent が最適なタイミングでコミットできる
+**Pros:**
+- Leverages Agent autonomy
+- Agent can commit at optimal timing
 
-**デメリット:**
-- Agent 毎に挙動が異なる可能性
-- 予期しない commit/push のリスク
-- 問題発生時の切り分けが困難
-- Agent がコミットすると変更を戻しづらい
-- マルチモデル比較が複雑
+**Cons:**
+- Behavior may differ between Agents
+- Risk of unexpected commit/push
+- Difficult to isolate issues
+- Hard to revert once Agent commits
+- Complex multi-model comparison
 
-### B: Orchestrator が git 操作を管理（推奨）
+### B: Orchestrator Manages Git Operations (Recommended)
 
-dursor 側で git 操作を統一的に管理し、AI Agent には**ファイル編集のみ**を許可する方式。
+A method where dursor centrally manages git operations, allowing AI Agents to **only edit files**.
 
 ```mermaid
 sequenceDiagram
@@ -83,45 +83,45 @@ sequenceDiagram
     participant A as AI Agent
     participant G as Git
 
-    U->>D: タスク作成
+    U->>D: Create task
     D->>G: git worktree add
-    D->>A: 指示を送信（git操作禁止）
-    A->>G: ファイル編集のみ
-    A->>D: 完了通知
+    D->>A: Send instruction (git ops forbidden)
+    A->>G: File editing only
+    A->>D: Completion notification
     D->>G: git add -A
     D->>G: git commit
     D->>G: git push
-    D->>U: 結果表示（差分 & ブランチ情報）
+    D->>U: Show results (diff & branch info)
 ```
 
-**メリット:**
-- 統一された git 操作フロー
-- 各フェーズが明確に分離されデバッグしやすい
-- 統一形式でマルチモデル比較が容易
-- 自動化されたワークフローで迅速なフィードバック
+**Pros:**
+- Unified git operation flow
+- Clear separation of phases for easier debugging
+- Unified format for multi-model comparison
+- Automated workflow with rapid feedback
 
-**デメリット:**
-- ワークフローに制約がある
-- Agent の自律性が制限される
-
----
-
-## 比較表
-
-| 観点 | A: Agent任せ | B: Orchestrator管理 |
-|------|-------------|---------------------|
-| **一貫性** | ❌ Agent毎に挙動が異なる可能性 | ✅ 統一されたgit操作フロー |
-| **制御性** | ❌ 予期しないタイミングでcommit/push | ✅ 決まったタイミングでcommit/push |
-| **デバッグ** | ❌ 問題発生時の切り分けが困難 | ✅ 各フェーズが明確に分離 |
-| **マルチモデル対応** | ❌ 各モデルの差分比較が複雑 | ✅ 統一形式で比較しやすい |
-| **自動化** | △ Agent依存で挙動が不安定 | ✅ 安定した自動ワークフロー |
-| **柔軟性** | ✅ Agentの自律性を活かせる | △ ワークフローに制約がある |
+**Cons:**
+- Workflow constraints
+- Agent autonomy is limited
 
 ---
 
-## 推奨設計: Orchestrator 管理パターン
+## Comparison Table
 
-### アーキテクチャ概要
+| Aspect | A: Agent Managed | B: Orchestrator Managed |
+|--------|-----------------|------------------------|
+| **Consistency** | ❌ Behavior may vary by Agent | ✅ Unified git operation flow |
+| **Control** | ❌ Unexpected timing for commit/push | ✅ Fixed timing for commit/push |
+| **Debugging** | ❌ Difficult to isolate issues | ✅ Clear phase separation |
+| **Multi-model Support** | ❌ Complex diff comparison | ✅ Easy comparison in unified format |
+| **Automation** | △ Unstable, Agent-dependent | ✅ Stable automated workflow |
+| **Flexibility** | ✅ Leverages Agent autonomy | △ Workflow constraints |
+
+---
+
+## Recommended Design: Orchestrator Management Pattern
+
+### Architecture Overview
 
 ```mermaid
 graph TB
@@ -164,37 +164,37 @@ graph TB
     GS -->|git commit, git push| GIT
 ```
 
-### ワークフロー詳細
+### Workflow Details
 
 ```mermaid
 flowchart TD
-    A[タスク作成] --> B[Worktree作成]
-    B --> C[Agent実行]
-    C --> D{ファイル変更あり?}
-    D -->|Yes| E[変更をステージング]
-    D -->|No| F[完了: 変更なし]
-    E --> G[コミット]
-    G --> H[プッシュ]
-    H --> I[結果表示]
-    I --> J{追加指示あり?}
+    A[Create Task] --> B[Create Worktree]
+    B --> C[Agent Execution]
+    C --> D{Files Changed?}
+    D -->|Yes| E[Stage Changes]
+    D -->|No| F[Done: No Changes]
+    E --> G[Commit]
+    G --> H[Push]
+    H --> I[Show Results]
+    I --> J{More Instructions?}
     J -->|Yes| C
-    J -->|No| K{PR作成/更新?}
-    K -->|作成| L[PR作成]
-    K -->|不要| M[完了: ブランチのみ]
-    L --> N[PR作成済み]
-    N --> O{追加指示あり?}
+    J -->|No| K{Create/Update PR?}
+    K -->|Create| L[Create PR]
+    K -->|Not Needed| M[Done: Branch Only]
+    L --> N[PR Created]
+    N --> O{More Instructions?}
     O -->|Yes| C
-    O -->|No| P{Description更新?}
-    P -->|Yes| Q[Diffから Description生成]
-    Q --> R[PR Description更新]
+    O -->|No| P{Update Description?}
+    P -->|Yes| Q[Generate Description from Diff]
+    Q --> R[Update PR Description]
     R --> O
-    P -->|No| S[完了]
+    P -->|No| S[Done]
     
-    subgraph "Agent実行（制約付き）"
+    subgraph "Agent Execution (Constrained)"
         C
     end
     
-    subgraph "dursor管理（自動実行）"
+    subgraph "dursor Managed (Automatic)"
         B
         E
         G
@@ -204,7 +204,7 @@ flowchart TD
         R
     end
     
-    subgraph "ユーザー操作"
+    subgraph "User Actions"
         A
         J
         K
@@ -215,97 +215,97 @@ flowchart TD
 
 ---
 
-## 実装設計
+## Implementation Design
 
-### 1. GitService の新設
+### 1. New GitService
 
-現在 `WorktreeService` と `PRService` に分散している git 操作を統一します。
+Unify git operations currently scattered across `WorktreeService` and `PRService`.
 
 ```python
 # apps/api/src/dursor_api/services/git_service.py
 
 class GitService:
-    """Git操作を統一管理するサービス"""
+    """Service for centralized git operation management"""
 
-    # === Worktree管理 ===
+    # === Worktree Management ===
     async def create_worktree(
         self, repo: Repo, base_branch: str, run_id: str
     ) -> WorktreeInfo:
-        """Worktreeを作成"""
+        """Create a worktree"""
         pass
 
     async def cleanup_worktree(
         self, worktree_path: Path, delete_branch: bool = False
     ) -> None:
-        """Worktreeを削除"""
+        """Delete a worktree"""
         pass
 
     async def list_worktrees(self, repo: Repo) -> list[WorktreeInfo]:
-        """Worktree一覧を取得"""
+        """List worktrees"""
         pass
 
-    # === 変更管理 ===
+    # === Change Management ===
     async def get_status(self, worktree_path: Path) -> GitStatus:
-        """作業ディレクトリの状態を取得"""
+        """Get working directory status"""
         pass
 
     async def stage_all(self, worktree_path: Path) -> None:
-        """全変更をステージング"""
+        """Stage all changes"""
         pass
 
     async def unstage_all(self, worktree_path: Path) -> None:
-        """ステージングを解除"""
+        """Unstage all changes"""
         pass
 
     async def get_diff(
         self, worktree_path: Path, staged: bool = True
     ) -> str:
-        """差分を取得"""
+        """Get diff"""
         pass
 
     async def get_diff_from_base(
         self, worktree_path: Path, base_ref: str
     ) -> str:
-        """ベースブランチからの累積差分を取得"""
+        """Get cumulative diff from base branch"""
         pass
 
     async def reset_changes(
         self, worktree_path: Path, hard: bool = False
     ) -> None:
-        """変更をリセット"""
+        """Reset changes"""
         pass
 
-    # === コミット管理 ===
+    # === Commit Management ===
     async def commit(
         self, worktree_path: Path, message: str
     ) -> str:
-        """コミットを作成（SHA を返す）"""
+        """Create a commit (returns SHA)"""
         pass
 
     async def amend(
         self, worktree_path: Path, message: str | None = None
     ) -> str:
-        """直前のコミットを修正"""
+        """Amend the last commit"""
         pass
 
-    # === ブランチ管理 ===
+    # === Branch Management ===
     async def create_branch(
         self, repo_path: Path, branch_name: str, base: str
     ) -> None:
-        """ブランチを作成"""
+        """Create a branch"""
         pass
 
     async def checkout(self, repo_path: Path, branch_name: str) -> None:
-        """ブランチをチェックアウト"""
+        """Checkout a branch"""
         pass
 
     async def delete_branch(
         self, repo_path: Path, branch_name: str, force: bool = False
     ) -> None:
-        """ブランチを削除"""
+        """Delete a branch"""
         pass
 
-    # === リモート操作 ===
+    # === Remote Operations ===
     async def push(
         self,
         repo_path: Path,
@@ -313,13 +313,13 @@ class GitService:
         auth_url: str | None = None,
         force: bool = False,
     ) -> None:
-        """リモートにプッシュ"""
+        """Push to remote"""
         pass
 
     async def fetch(
         self, repo_path: Path, remote: str = "origin"
     ) -> None:
-        """リモートからフェッチ"""
+        """Fetch from remote"""
         pass
 
     async def delete_remote_branch(
@@ -328,27 +328,27 @@ class GitService:
         branch: str,
         auth_url: str | None = None,
     ) -> None:
-        """リモートブランチを削除"""
+        """Delete remote branch"""
         pass
 
-    # === リセット操作 ===
+    # === Reset Operations ===
     async def reset_to_previous(
         self,
         repo_path: Path,
         soft: bool = False,
     ) -> None:
-        """直前のコミットに戻す（soft: 変更は保持）"""
+        """Reset to previous commit (soft: keep changes)"""
         pass
 ```
 
-### 2. Agent 制約の定義
+### 2. Agent Constraints Definition
 
 ```python
 # apps/api/src/dursor_api/domain/models.py
 
 @dataclass
 class AgentConstraints:
-    """Agent実行時の制約"""
+    """Constraints for Agent execution"""
 
     forbidden_paths: list[str] = field(default_factory=lambda: [
         ".git",
@@ -372,29 +372,29 @@ class AgentConstraints:
         "git diff",
         "git log",
         "git show",
-        "git branch",  # 読み取りのみ
+        "git branch",  # read-only
     ])
 
     def to_prompt(self) -> str:
-        """制約をプロンプト形式に変換"""
+        """Convert constraints to prompt format"""
         return f"""
-## 重要な制約
+## Important Constraints
 
-### 禁止されている操作
-- 以下の git コマンドは使用禁止です: {', '.join(self.forbidden_commands)}
-- ファイルの編集のみを行い、コミットやプッシュは行わないでください
-- 編集後の変更は自動的に検出されます
+### Forbidden Operations
+- The following git commands are forbidden: {', '.join(self.forbidden_commands)}
+- Only edit files, do not commit or push
+- Changes will be automatically detected after editing
 
-### 禁止されているパス
-以下のパスへのアクセスは禁止されています:
+### Forbidden Paths
+Access to the following paths is forbidden:
 {chr(10).join(f'- {p}' for p in self.forbidden_paths)}
 
-### 許可されている git コマンド（読み取り専用）
+### Allowed Git Commands (Read-only)
 {chr(10).join(f'- {c}' for c in self.allowed_git_commands)}
 """
 ```
 
-### 3. BaseExecutor の定義
+### 3. BaseExecutor Definition
 
 ```python
 # apps/api/src/dursor_api/executors/base_executor.py
@@ -407,7 +407,7 @@ from dursor_api.domain.models import AgentConstraints
 
 
 class BaseExecutor(ABC):
-    """全Executorの基底クラス"""
+    """Base class for all Executors"""
 
     @abstractmethod
     async def execute(
@@ -418,17 +418,17 @@ class BaseExecutor(ABC):
         on_output: Callable[[str], Awaitable[None]] | None = None,
         resume_session_id: str | None = None,
     ) -> ExecutorResult:
-        """CLIを実行
+        """Execute CLI
 
         Args:
-            worktree_path: 作業ディレクトリ
-            instruction: 自然言語での指示
-            constraints: Agent制約（git操作禁止等）
-            on_output: 出力ストリーミング用コールバック
-            resume_session_id: セッション継続用ID
+            worktree_path: Working directory
+            instruction: Natural language instruction
+            constraints: Agent constraints (git ops forbidden, etc.)
+            on_output: Callback for output streaming
+            resume_session_id: Session ID for continuation
 
         Returns:
-            実行結果
+            Execution result
         """
         pass
 
@@ -437,14 +437,14 @@ class BaseExecutor(ABC):
         instruction: str,
         constraints: AgentConstraints | None,
     ) -> str:
-        """制約を含めた指示を構築"""
+        """Build instruction with constraints"""
         if constraints is None:
             return instruction
 
-        return f"{constraints.to_prompt()}\n\n## タスク\n{instruction}"
+        return f"{constraints.to_prompt()}\n\n## Task\n{instruction}"
 ```
 
-### 4. RunService のワークフロー
+### 4. RunService Workflow
 
 ```python
 # apps/api/src/dursor_api/services/run_service.py
@@ -468,22 +468,22 @@ class RunService:
         executor_type: ExecutorType,
         resume_session_id: str | None = None,
     ) -> None:
-        """CLI実行ワークフロー（実行後に自動commit/push）"""
+        """CLI execution workflow (auto commit/push after execution)"""
         logs: list[str] = []
 
         try:
             await self.run_dao.update_status(run.id, RunStatus.RUNNING)
 
-            # 1. 実行前の状態を記録
+            # 1. Record pre-execution status
             pre_status = await self.git_service.get_status(worktree_info.path)
             logs.append(f"Pre-execution status: {pre_status}")
 
-            # 2. CLI実行（ファイル編集のみ）
+            # 2. Execute CLI (file editing only)
             executor = self._get_executor(executor_type)
             result = await executor.execute(
                 worktree_path=worktree_info.path,
                 instruction=run.instruction,
-                constraints=AgentConstraints(),  # 制約を渡す
+                constraints=AgentConstraints(),  # Pass constraints
                 on_output=lambda line: self._log_output(run.id, line),
                 resume_session_id=resume_session_id,
             )
@@ -497,15 +497,15 @@ class RunService:
                 )
                 return
 
-            # 3. 変更をステージング
+            # 3. Stage changes
             await self.git_service.stage_all(worktree_info.path)
 
-            # 4. パッチを取得
+            # 4. Get patch
             patch = await self.git_service.get_diff(
                 worktree_info.path, staged=True
             )
 
-            # 変更がない場合はスキップ
+            # Skip if no changes
             if not patch.strip():
                 logs.append("No changes detected, skipping commit/push")
                 await self.run_dao.update_status(
@@ -519,7 +519,7 @@ class RunService:
                 )
                 return
 
-            # 5. コミット（自動）
+            # 5. Commit (automatic)
             commit_message = self._generate_commit_message(run.instruction, result.summary)
             commit_sha = await self.git_service.commit(
                 worktree_info.path,
@@ -527,7 +527,7 @@ class RunService:
             )
             logs.append(f"Committed: {commit_sha}")
 
-            # 6. プッシュ（自動）
+            # 6. Push (automatic)
             task = await self.task_dao.get(run.task_id)
             repo = await self.repo_service.get(task.repo_id)
             owner, repo_name = self._parse_github_url(repo.repo_url)
@@ -540,7 +540,7 @@ class RunService:
             )
             logs.append(f"Pushed to branch: {worktree_info.branch_name}")
 
-            # 7. 結果を保存
+            # 7. Save results
             files_changed = self._parse_diff(patch)
             await self.run_dao.update_status(
                 run.id,
@@ -564,17 +564,17 @@ class RunService:
     def _generate_commit_message(
         self, instruction: str, summary: str
     ) -> str:
-        """コミットメッセージを生成"""
-        # 指示の最初の行を使用（長すぎる場合は切り詰め）
+        """Generate commit message"""
+        # Use first line of instruction (truncate if too long)
         first_line = instruction.split('\n')[0][:72]
         if summary:
             return f"{first_line}\n\n{summary}"
         return first_line
 ```
 
-### 5. PRService の実装
+### 5. PRService Implementation
 
-Run 実行時に既に commit/push されているため、PRService は PR 作成・更新を担当します。
+Since commit/push is already done during Run execution, PRService handles PR creation and updates.
 
 ```python
 # apps/api/src/dursor_api/services/pr_service.py
@@ -600,7 +600,7 @@ class PRService:
         run_id: str,
         pr_data: PRCreate,
     ) -> PR:
-        """Runのブランチから PR を作成（既にpush済み）"""
+        """Create PR from Run's branch (already pushed)"""
         run = await self.run_dao.get(run_id)
         if not run or not run.working_branch:
             raise ValueError(f"Run not found or no branch: {run_id}")
@@ -612,7 +612,7 @@ class PRService:
         repo = await self.repo_service.get(task.repo_id)
         owner, repo_name = self._parse_github_url(repo.repo_url)
 
-        # PR作成（ブランチは既にpush済み）
+        # Create PR (branch is already pushed)
         pr_response = await self.github_service.create_pull_request(
             owner=owner,
             repo=repo_name,
@@ -622,7 +622,7 @@ class PRService:
             body=pr_data.body or f"Generated by dursor\n\n{run.summary}",
         )
 
-        # DB保存
+        # Save to DB
         return await self.pr_dao.create(
             task_id=task_id,
             number=pr_response["number"],
@@ -638,7 +638,7 @@ class PRService:
         task_id: str,
         pr_id: str,
     ) -> PR:
-        """現在のDiffからDescriptionを再生成してPRを更新"""
+        """Regenerate Description from current Diff and update PR"""
         pr = await self.pr_dao.get(pr_id)
         if not pr or pr.task_id != task_id:
             raise ValueError(f"PR not found: {pr_id}")
@@ -647,7 +647,7 @@ class PRService:
         repo = await self.repo_service.get(task.repo_id)
         owner, repo_name = self._parse_github_url(repo.repo_url)
 
-        # 累積Diffを取得
+        # Get cumulative diff
         run = await self._get_latest_run_for_pr(pr)
         worktree_path = Path(run.worktree_path)
         
@@ -656,10 +656,10 @@ class PRService:
             base_ref=run.base_ref,
         )
 
-        # pull_request_templateを読み込み
+        # Load pull_request_template
         template = await self._load_pr_template(repo)
 
-        # LLMでDescription生成
+        # Generate Description with LLM
         new_description = await self._generate_description(
             diff=cumulative_diff,
             template=template,
@@ -667,7 +667,7 @@ class PRService:
             pr=pr,
         )
 
-        # GitHub APIでPR更新
+        # Update PR via GitHub API
         await self.github_service.update_pull_request(
             owner=owner,
             repo=repo_name,
@@ -675,16 +675,16 @@ class PRService:
             body=new_description,
         )
 
-        # DB更新
+        # Update DB
         await self.pr_dao.update_body(pr_id, new_description)
 
         return await self.pr_dao.get(pr_id)
 
     async def _load_pr_template(self, repo: Repo) -> str | None:
-        """リポジトリのpull_request_templateを読み込み"""
+        """Load repository's pull_request_template"""
         workspace_path = Path(repo.workspace_path)
         
-        # テンプレートの候補パス（優先順）
+        # Template candidate paths (in priority order)
         template_paths = [
             workspace_path / ".github" / "pull_request_template.md",
             workspace_path / ".github" / "PULL_REQUEST_TEMPLATE.md",
@@ -706,11 +706,11 @@ class PRService:
         task: Task,
         pr: PR,
     ) -> str:
-        """LLMを使ってPR Descriptionを生成"""
+        """Generate PR Description using LLM"""
         
         prompt = self._build_description_prompt(diff, template, task, pr)
         
-        # LLMで生成（システムで設定されたモデルを使用）
+        # Generate with LLM (using system-configured model)
         response = await self.llm_router.generate(
             prompt=prompt,
             system_prompt="You are a helpful assistant that generates clear and concise PR descriptions.",
@@ -725,45 +725,45 @@ class PRService:
         task: Task,
         pr: PR,
     ) -> str:
-        """Description生成用のプロンプトを構築"""
+        """Build prompt for Description generation"""
         
         prompt_parts = [
-            "以下の情報を基に、Pull Request の Description を生成してください。",
+            "Generate a Pull Request Description based on the following information.",
             "",
-            "## タスクの説明",
-            task.description or "(なし)",
+            "## Task Description",
+            task.description or "(None)",
             "",
-            "## PR タイトル",
+            "## PR Title",
             pr.title,
             "",
-            "## 変更差分",
+            "## Diff",
             "```diff",
-            diff[:10000] if len(diff) > 10000 else diff,  # 長すぎる場合は切り詰め
+            diff[:10000] if len(diff) > 10000 else diff,  # Truncate if too long
             "```",
         ]
 
         if template:
             prompt_parts.extend([
                 "",
-                "## テンプレート",
-                "以下のテンプレートの形式に従って Description を作成してください:",
+                "## Template",
+                "Create the Description following this template format:",
                 "",
                 template,
             ])
         else:
             prompt_parts.extend([
                 "",
-                "## 出力形式",
-                "以下の形式で Description を作成してください:",
+                "## Output Format",
+                "Create the Description in the following format:",
                 "",
                 "## Summary",
-                "(変更内容の概要を1-3文で)",
+                "(Overview of changes in 1-3 sentences)",
                 "",
                 "## Changes",
-                "(主な変更点を箇条書きで)",
+                "(Main changes as bullet points)",
                 "",
                 "## Test Plan",
-                "(テスト方法や確認事項)",
+                "(Testing methods and verification items)",
             ])
 
         return "\n".join(prompt_parts)
@@ -771,9 +771,9 @@ class PRService:
 
 ---
 
-## 会話継続時のワークフロー
+## Conversation Continuation Workflow
 
-複数回の会話で PR を育てていく場合のフロー:
+Flow for growing a PR through multiple conversations:
 
 ```mermaid
 sequenceDiagram
@@ -782,52 +782,52 @@ sequenceDiagram
     participant A as AI Agent
     participant G as Git/GitHub
 
-    Note over U,G: 初回実行
-    U->>D: 指示1を送信
+    Note over U,G: Initial Execution
+    U->>D: Send instruction 1
     D->>G: git worktree add
-    D->>A: 指示1（session_id なし）
-    A->>G: ファイル編集
-    A->>D: 完了（session_id: abc123）
+    D->>A: Instruction 1 (no session_id)
+    A->>G: Edit files
+    A->>D: Complete (session_id: abc123)
     D->>G: git add -A
     D->>G: git commit
     D->>G: git push
-    D->>U: 結果表示（差分 & コミット情報）
+    D->>U: Show results (diff & commit info)
 
-    Note over U,G: 追加指示
-    U->>D: 指示2を送信
-    D->>A: 指示2（session_id: abc123）
-    A->>G: 追加のファイル編集
-    A->>D: 完了
+    Note over U,G: Additional Instruction
+    U->>D: Send instruction 2
+    D->>A: Instruction 2 (session_id: abc123)
+    A->>G: Additional file edits
+    A->>D: Complete
     D->>G: git add -A
     D->>G: git commit
     D->>G: git push
-    D->>U: 結果表示（累積差分）
+    D->>U: Show results (cumulative diff)
 
-    Note over U,G: PR作成（任意のタイミング）
-    U->>D: PR作成リクエスト
+    Note over U,G: Create PR (at any time)
+    U->>D: Create PR request
     D->>G: GitHub API: Create PR
     D->>U: PR URL
 
-    Note over U,G: PR作成後の追加指示
-    U->>D: 指示3を送信
-    D->>A: 指示3（session_id: abc123）
-    A->>G: 追加のファイル編集
-    A->>D: 完了
+    Note over U,G: Additional Instruction after PR Creation
+    U->>D: Send instruction 3
+    D->>A: Instruction 3 (session_id: abc123)
+    A->>G: Additional file edits
+    A->>D: Complete
     D->>G: git add -A
     D->>G: git commit
     D->>G: git push
-    D->>U: 結果表示（PRに自動反映）
+    D->>U: Show results (auto-reflected in PR)
 
-    Note over U,G: Description更新（UIボタン）
-    U->>D: Description更新リクエスト
-    D->>G: git diff（累積差分取得）
-    D->>D: pull_request_template読み込み
-    D->>D: LLMでDescription生成
+    Note over U,G: Update Description (UI Button)
+    U->>D: Update Description request
+    D->>G: git diff (get cumulative diff)
+    D->>D: Load pull_request_template
+    D->>D: Generate Description with LLM
     D->>G: GitHub API: Update PR
-    D->>U: 更新完了
+    D->>U: Update complete
 ```
 
-### 実装例
+### Implementation Example
 
 ```python
 class RunService:
@@ -836,16 +836,16 @@ class RunService:
         run_id: str,
         additional_instruction: str,
     ) -> Run:
-        """既存Runに追加の指示を送信（自動commit/push）"""
+        """Send additional instruction to existing Run (auto commit/push)"""
         existing_run = await self.run_dao.get(run_id)
         if not existing_run:
             raise ValueError(f"Run not found: {run_id}")
 
-        # 同じworktreeを再利用
+        # Reuse same worktree
         worktree_path = Path(existing_run.worktree_path)
         logs: list[str] = []
 
-        # 追加の指示でCLI実行
+        # Execute CLI with additional instruction
         executor = self._get_executor(existing_run.executor_type)
         result = await executor.execute(
             worktree_path=worktree_path,
@@ -863,14 +863,14 @@ class RunService:
             )
             return await self.run_dao.get(existing_run.id)
 
-        # 変更をステージング
+        # Stage changes
         await self.git_service.stage_all(worktree_path)
 
-        # 差分を取得
+        # Get diff
         patch = await self.git_service.get_diff(worktree_path, staged=True)
 
         if patch.strip():
-            # コミット
+            # Commit
             commit_message = self._generate_commit_message(
                 additional_instruction, result.summary
             )
@@ -880,7 +880,7 @@ class RunService:
             )
             logs.append(f"Committed: {commit_sha}")
 
-            # プッシュ
+            # Push
             task = await self.task_dao.get(existing_run.task_id)
             repo = await self.repo_service.get(task.repo_id)
             owner, repo_name = self._parse_github_url(repo.repo_url)
@@ -893,13 +893,13 @@ class RunService:
             )
             logs.append(f"Pushed to branch: {existing_run.working_branch}")
 
-        # 累積の変更を取得（ベースブランチからの差分）
+        # Get cumulative diff (diff from base branch)
         cumulative_patch = await self.git_service.get_diff_from_base(
             worktree_path=worktree_path,
             base_ref=existing_run.base_ref,
         )
 
-        # 結果を更新
+        # Update results
         await self.run_dao.update_status(
             existing_run.id,
             RunStatus.SUCCEEDED,
@@ -914,27 +914,27 @@ class RunService:
 
 ---
 
-## PR Description 自動生成機能
+## PR Description Auto-Generation Feature
 
-### 概要
+### Overview
 
-PR 作成後、UIの「Description 更新」ボタンから現在の累積 Diff を基に Description を自動生成・更新できます。
+After PR creation, users can auto-generate and update the Description from the current cumulative diff using the "Update Description" button in the UI.
 
-### フロー
+### Flow
 
 ```mermaid
 flowchart TD
-    A[UIでDescription更新ボタンをクリック] --> B[累積Diffを取得]
-    B --> C{pull_request_template.md あり?}
-    C -->|Yes| D[テンプレートを読み込み]
-    C -->|No| E[デフォルトフォーマット使用]
-    D --> F[LLMでDescription生成]
+    A[Click Update Description button in UI] --> B[Get cumulative diff]
+    B --> C{pull_request_template.md exists?}
+    C -->|Yes| D[Load template]
+    C -->|No| E[Use default format]
+    D --> F[Generate Description with LLM]
     E --> F
-    F --> G[GitHub API: PR更新]
-    G --> H[UI更新]
+    F --> G[GitHub API: Update PR]
+    G --> H[Update UI]
 ```
 
-### API エンドポイント
+### API Endpoint
 
 ```
 POST /v1/tasks/{task_id}/prs/{pr_id}/regenerate-description
@@ -953,7 +953,7 @@ POST /v1/tasks/{task_id}/prs/{pr_id}/regenerate-description
 }
 ```
 
-### UI コンポーネント
+### UI Component
 
 ```tsx
 // apps/web/src/components/PRDetailPanel.tsx
@@ -972,9 +972,9 @@ export function PRDetailPanel({ taskId, pr, onUpdate }: PRDetailPanelProps) {
     try {
       const updatedPR = await api.regeneratePRDescription(taskId, pr.id);
       onUpdate(updatedPR);
-      toast.success('Description を更新しました');
+      toast.success('Description updated');
     } catch (error) {
-      toast.error('Description の更新に失敗しました');
+      toast.error('Failed to update Description');
     } finally {
       setIsRegenerating(false);
     }
@@ -998,12 +998,12 @@ export function PRDetailPanel({ taskId, pr, onUpdate }: PRDetailPanelProps) {
           {isRegenerating ? (
             <>
               <Spinner size="sm" />
-              生成中...
+              Generating...
             </>
           ) : (
             <>
               <RefreshIcon />
-              Description 更新
+              Update Description
             </>
           )}
         </Button>
@@ -1020,9 +1020,9 @@ export function PRDetailPanel({ taskId, pr, onUpdate }: PRDetailPanelProps) {
 }
 ```
 
-### pull_request_template の検索パス
+### pull_request_template Search Paths
 
-以下の順序でテンプレートを検索します:
+Templates are searched in the following order:
 
 1. `.github/pull_request_template.md`
 2. `.github/PULL_REQUEST_TEMPLATE.md`
@@ -1032,31 +1032,31 @@ export function PRDetailPanel({ taskId, pr, onUpdate }: PRDetailPanelProps) {
 
 ---
 
-## Run の破棄機能
+## Run Discard Feature
 
-実行済みの Run を破棄する場合のフロー（既に commit/push 済みのため、ブランチごと削除）:
+Flow for discarding an executed Run (delete branch since already committed/pushed):
 
 ```mermaid
 flowchart TD
-    A[Runの結果を確認] --> B{破棄する?}
-    B -->|No| C[PR作成 or 追加指示]
-    B -->|Yes| D[リモートブランチ削除]
-    D --> E[Worktree削除]
-    E --> F[Run をキャンセル状態に]
-    F --> G[完了]
+    A[Review Run results] --> B{Discard?}
+    B -->|No| C[Create PR or Add Instructions]
+    B -->|Yes| D[Delete remote branch]
+    D --> E[Delete worktree]
+    E --> F[Set Run to canceled status]
+    F --> G[Done]
 ```
 
-### 実装例
+### Implementation Example
 
 ```python
 class RunService:
     async def discard_run(self, run_id: str) -> None:
-        """Runを完全に破棄（ブランチも削除）"""
+        """Completely discard Run (delete branch as well)"""
         run = await self.run_dao.get(run_id)
         if not run:
             return
 
-        # リモートブランチを削除（push済みの場合）
+        # Delete remote branch (if pushed)
         if run.working_branch and run.commit_sha:
             try:
                 task = await self.task_dao.get(run.task_id)
@@ -1070,31 +1070,31 @@ class RunService:
                     auth_url=auth_url,
                 )
             except Exception as e:
-                # リモート削除に失敗しても続行
+                # Continue even if remote deletion fails
                 pass
 
-        # Worktreeを削除（ローカルブランチも削除）
+        # Delete worktree (also delete local branch)
         if run.worktree_path:
             await self.git_service.cleanup_worktree(
                 Path(run.worktree_path),
                 delete_branch=True,
             )
 
-        # ステータスを更新
+        # Update status
         await self.run_dao.update_status(run.id, RunStatus.CANCELED)
 
     async def revert_last_commit(self, run_id: str) -> Run:
-        """直前のコミットを取り消して再実行可能な状態に戻す"""
+        """Revert last commit and return to re-executable state"""
         run = await self.run_dao.get(run_id)
         if not run or not run.worktree_path:
             raise ValueError(f"Run not found: {run_id}")
 
         worktree_path = Path(run.worktree_path)
 
-        # git reset --soft HEAD~1 で直前のコミットを取り消し
+        # Undo last commit with git reset --soft HEAD~1
         await self.git_service.reset_to_previous(worktree_path, soft=True)
 
-        # force push でリモートも更新
+        # Update remote with force push
         task = await self.task_dao.get(run.task_id)
         repo = await self.repo_service.get(task.repo_id)
         owner, repo_name = self._parse_github_url(repo.repo_url)
@@ -1112,56 +1112,56 @@ class RunService:
 
 ---
 
-## まとめ
+## Summary
 
-### 推奨設計の要点
+### Key Points of Recommended Design
 
-1. **責任の分離**: AI Agent はファイル編集のみ、git 操作は dursor が統一管理
-2. **自動化されたワークフロー**: Agent 実行後に自動で commit/push、迅速なフィードバック
-3. **一貫性**: どの Agent を使っても同じ git ワークフロー
-4. **会話継続**: 同じブランチ上で複数回の指示を重ねて PR を育てる（PR 作成後も継続可能）
-5. **Description 自動生成**: pull_request_template に沿った Description を LLM で生成
-6. **デバッグ容易性**: 「ファイル編集」と「git操作」を分離して問題調査可能
+1. **Separation of Responsibilities**: AI Agent only edits files, dursor centrally manages git operations
+2. **Automated Workflow**: Auto commit/push after Agent execution, rapid feedback
+3. **Consistency**: Same git workflow regardless of which Agent is used
+4. **Conversation Continuation**: Layer multiple instructions on the same branch to grow PR (continues after PR creation)
+5. **Description Auto-Generation**: Generate Description with LLM following pull_request_template
+6. **Debugging Ease**: Separate "file editing" and "git operations" for easier issue investigation
 
-### ワークフローのポイント
+### Workflow Key Points
 
-| フェーズ | 操作 | 実行者 |
-|---------|------|--------|
-| 準備 | git worktree add | dursor |
-| 実行 | ファイル編集 | AI Agent |
-| 保存 | git add, commit, push | dursor（自動） |
-| PR作成 | GitHub API: Create PR | dursor（ユーザー指示時） |
-| PR更新 | 追加指示 → commit/push（自動反映） | dursor |
-| Description更新 | Diff + template → LLM生成 → GitHub API | dursor（UIボタン） |
-| 破棄 | ブランチ削除 | dursor（ユーザー指示時） |
+| Phase | Operation | Executor |
+|-------|-----------|----------|
+| Preparation | git worktree add | dursor |
+| Execution | File editing | AI Agent |
+| Save | git add, commit, push | dursor (automatic) |
+| Create PR | GitHub API: Create PR | dursor (on user request) |
+| Update PR | Additional instruction → commit/push (auto-reflected) | dursor |
+| Update Description | Diff + template → LLM generation → GitHub API | dursor (UI button) |
+| Discard | Delete branch | dursor (on user request) |
 
-### PR ライフサイクル
+### PR Lifecycle
 
 ```mermaid
 stateDiagram-v2
-    [*] --> BranchCreated: タスク作成
-    BranchCreated --> HasChanges: Agent実行
-    HasChanges --> HasChanges: 追加指示
-    HasChanges --> PRCreated: PR作成
-    PRCreated --> PRUpdated: 追加指示（自動反映）
-    PRUpdated --> PRUpdated: 追加指示
-    PRUpdated --> PRUpdated: Description更新
-    PRCreated --> PRUpdated: Description更新
-    PRUpdated --> Merged: マージ
-    PRCreated --> Merged: マージ
-    HasChanges --> Discarded: 破棄
-    PRCreated --> Closed: クローズ
-    PRUpdated --> Closed: クローズ
+    [*] --> BranchCreated: Create Task
+    BranchCreated --> HasChanges: Agent Execution
+    HasChanges --> HasChanges: Additional Instruction
+    HasChanges --> PRCreated: Create PR
+    PRCreated --> PRUpdated: Additional Instruction (auto-reflected)
+    PRUpdated --> PRUpdated: Additional Instruction
+    PRUpdated --> PRUpdated: Update Description
+    PRCreated --> PRUpdated: Update Description
+    PRUpdated --> Merged: Merge
+    PRCreated --> Merged: Merge
+    HasChanges --> Discarded: Discard
+    PRCreated --> Closed: Close
+    PRUpdated --> Closed: Close
     Merged --> [*]
     Closed --> [*]
     Discarded --> [*]
 ```
 
-### 今後の拡張
+### Future Extensions
 
-- PR コメントからの再実行トリガー
-- 複数 Run のマージ機能
-- コンフリクト解決支援
-- ブランチ戦略のカスタマイズ（squash, rebase 等）
-- コミットメッセージのカスタマイズオプション
-- Description テンプレートのカスタマイズ
+- Re-execution trigger from PR comments
+- Multiple Run merge feature
+- Conflict resolution support
+- Branch strategy customization (squash, rebase, etc.)
+- Commit message customization options
+- Description template customization
