@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { tasksApi, runsApi, prsApi } from '@/lib/api';
-import type { Message, ModelProfile, ExecutorType, Run } from '@/types';
+import type { Message, ModelProfile, ExecutorType, Run, RunStatus } from '@/types';
 import { Button } from './ui/Button';
 import { Input, Textarea } from './ui/Input';
 import { DiffViewer } from './DiffViewer';
@@ -100,6 +100,41 @@ export function ChatCodeView({
       });
     }
   }, [runs]);
+
+  // Track run status changes and show toast notifications
+  const prevRunStatuses = useRef<Map<string, RunStatus>>(new Map());
+  useEffect(() => {
+    const prevStatuses = prevRunStatuses.current;
+
+    runs.forEach((run) => {
+      const prevStatus = prevStatuses.get(run.id);
+      const currentStatus = run.status;
+
+      // Only notify if status changed from running/queued
+      if (prevStatus && (prevStatus === 'running' || prevStatus === 'queued')) {
+        const executorName =
+          run.executor_type === 'claude_code'
+            ? 'Claude Code'
+            : run.executor_type === 'codex_cli'
+              ? 'Codex'
+              : run.executor_type === 'gemini_cli'
+                ? 'Gemini CLI'
+                : run.model_name || 'Run';
+
+        if (currentStatus === 'failed') {
+          const errorMsg = run.error
+            ? `${executorName}: ${run.error.slice(0, 100)}${run.error.length > 100 ? '...' : ''}`
+            : `${executorName} execution failed`;
+          error(errorMsg, 'Run Failed');
+        } else if (currentStatus === 'succeeded') {
+          success(`${executorName} completed successfully`);
+        }
+      }
+
+      // Update tracked status
+      prevStatuses.set(run.id, currentStatus);
+    });
+  }, [runs, error, success]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

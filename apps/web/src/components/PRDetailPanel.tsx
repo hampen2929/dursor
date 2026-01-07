@@ -156,7 +156,7 @@ export function PRDetailPanel({
             </div>
           ) : (
             <div className="p-4 bg-gray-800/30 rounded-lg text-gray-500 text-sm text-center">
-              No description provided. Click "Regenerate Description" to generate one automatically.
+              No description provided. Click &quot;Regenerate Description&quot; to generate one automatically.
             </div>
           )}
         </div>
