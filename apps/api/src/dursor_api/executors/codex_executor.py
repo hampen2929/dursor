@@ -51,33 +51,18 @@ class CodexExecutor:
             ExecutorResult with success status, patch, and logs.
         """
         logs: list[str] = []
-        output_lines: list[str] = []
 
         # Prepare environment
         env = os.environ.copy()
         env.update(self.options.env_vars)
 
-        # Build command
-        #
-        # Codex CLI (Rust): `codex exec <PROMPT> --full-auto`
-        # Resume an existing session in non-interactive mode:
-        #   `codex exec <PROMPT> resume <SESSION_ID> --full-auto`
-        #
-        # See: https://github.com/openai/codex
-        cmd: list[str] = [self.options.codex_cli_path, "exec"]
-        if resume_session_id:
-            # IMPORTANT: Codex `exec` expects the PROMPT positional argument before the subcommand.
-            # This matches upstream tests and avoids clap parse errors (exit code 2).
-            cmd.extend([instruction, "resume", resume_session_id])
-            logs.append(f"Continuing session: {resume_session_id}")
-        else:
-            cmd.append(instruction)
-        cmd.append("--full-auto")
+        async def _run_cmd(cmd: list[str]) -> tuple[int, list[str]]:
+            """Run a single Codex command and capture output."""
+            output_lines: list[str] = []
 
-        logs.append(f"Executing: {' '.join(cmd)}")
-        logs.append(f"Working directory: {worktree_path}")
+            logs.append(f"Executing: {' '.join(cmd)}")
+            logs.append(f"Working directory: {worktree_path}")
 
-        try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -86,8 +71,7 @@ class CodexExecutor:
                 env=env,
             )
 
-            # Stream output
-            async def read_output():
+            async def read_output() -> None:
                 while True:
                     line = await process.stdout.readline()
                     if not line:
@@ -95,56 +79,82 @@ class CodexExecutor:
                     decoded = line.decode("utf-8", errors="replace").rstrip()
                     output_lines.append(decoded)
                     logs.append(decoded)
-
-                    if len(output_lines) <= self.options.max_output_lines:
-                        if on_output:
-                            await on_output(decoded)
+                    if len(output_lines) <= self.options.max_output_lines and on_output:
+                        await on_output(decoded)
 
             try:
-                await asyncio.wait_for(
-                    read_output(),
-                    timeout=self.options.timeout_seconds,
-                )
-            except TimeoutError:
+                await asyncio.wait_for(read_output(), timeout=self.options.timeout_seconds)
+            except TimeoutError as te:
                 process.kill()
                 await process.wait()
-                return ExecutorResult(
-                    success=False,
-                    summary="",
-                    patch="",
-                    files_changed=[],
-                    logs=logs,
-                    error=f"Execution timed out after {self.options.timeout_seconds} seconds",
-                )
+                raise TimeoutError(
+                    f"Execution timed out after {self.options.timeout_seconds} seconds"
+                ) from te
 
             await process.wait()
+            return process.returncode or 0, output_lines
 
-            if process.returncode != 0:
-                return ExecutorResult(
-                    success=False,
-                    summary="",
-                    patch="",
-                    files_changed=[],
-                    logs=logs,
-                    error=f"Codex CLI exited with code {process.returncode}",
-                )
+        def _format_error_tail(output_lines: list[str], max_lines: int = 80) -> str:
+            tail = output_lines[-max_lines:] if output_lines else []
+            if not tail:
+                return "(no output)"
+            return "\n".join(tail)
 
-            # Extract session ID (UUID) from Codex output if present
-            session_id = self._extract_session_id(output_lines)
+        # Build candidate commands.
+        #
+        # Codex CLI has had different argument parsing behavior across versions.
+        # Exit code 2 usually means a clap argument parse error, so we try a small
+        # set of known-good orderings before giving up.
+        base = [self.options.codex_cli_path, "exec"]
+        cmds: list[list[str]] = []
+        if resume_session_id:
+            logs.append(f"Continuing session: {resume_session_id}")
+            # Variant A: prompt first (matches upstream exec tests)
+            cmds.append([*base, instruction, "resume", resume_session_id, "--full-auto"])
+            # Variant B: resume subcommand first (some builds parse this way)
+            cmds.append([*base, "resume", resume_session_id, instruction, "--full-auto"])
+            # Variant C/D: put --full-auto before positional args
+            cmds.append([*base, "--full-auto", instruction, "resume", resume_session_id])
+            cmds.append([*base, "--full-auto", "resume", resume_session_id, instruction])
+        else:
+            cmds.append([*base, instruction, "--full-auto"])
 
-            # Generate diff from git changes
-            patch, files_changed = await self._generate_diff(worktree_path)
+        try:
+            last_code: int | None = None
+            last_out: list[str] = []
 
-            # Generate summary
-            summary = self._generate_summary(files_changed, output_lines)
+            for idx, cmd in enumerate(cmds, start=1):
+                logs.append(f"--- codex attempt {idx}/{len(cmds)} ---")
+                code, out = await _run_cmd(cmd)
+                last_code = code
+                last_out = out
 
+                if code == 0:
+                    session_id = self._extract_session_id(out)
+                    patch, files_changed = await self._generate_diff(worktree_path)
+                    summary = self._generate_summary(files_changed, out)
+                    return ExecutorResult(
+                        success=True,
+                        summary=summary,
+                        patch=patch,
+                        files_changed=files_changed,
+                        logs=logs,
+                        session_id=session_id,
+                    )
+
+                # If it's not a parse error, don't keep retrying other permutations.
+                if code != 2:
+                    break
+
+            # Failed all attempts
+            tail = _format_error_tail(last_out)
             return ExecutorResult(
-                success=True,
-                summary=summary,
-                patch=patch,
-                files_changed=files_changed,
+                success=False,
+                summary="",
+                patch="",
+                files_changed=[],
                 logs=logs,
-                session_id=session_id,
+                error=f"Codex CLI exited with code {last_code}\n\nLast output:\n{tail}",
             )
 
         except FileNotFoundError:
@@ -155,6 +165,15 @@ class CodexExecutor:
                 files_changed=[],
                 logs=logs,
                 error=f"Codex CLI not found at: {self.options.codex_cli_path}",
+            )
+        except TimeoutError as e:
+            return ExecutorResult(
+                success=False,
+                summary="",
+                patch="",
+                files_changed=[],
+                logs=logs,
+                error=str(e),
             )
         except Exception as e:
             return ExecutorResult(
