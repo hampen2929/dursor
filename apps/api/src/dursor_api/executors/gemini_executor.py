@@ -115,13 +115,16 @@ class GeminiExecutor:
             await process.wait()
 
             if process.returncode != 0:
+                # Include last few lines of output for debugging
+                tail_lines = logs[-20:] if logs else []
+                tail = "\n".join(tail_lines)
                 return ExecutorResult(
                     success=False,
                     summary="",
                     patch="",
                     files_changed=[],
                     logs=logs,
-                    error=f"Gemini CLI exited with code {process.returncode}",
+                    error=f"Gemini CLI exited with code {process.returncode}\n\nLast output:\n{tail}",
                 )
 
             # Generate diff from git changes
