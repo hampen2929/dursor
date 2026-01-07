@@ -495,8 +495,9 @@ class RunService:
 
             logs.append(f"Starting {executor_name} execution in {worktree_info.path}")
             logs.append(f"Working branch: {worktree_info.branch_name}")
-            if resume_session_id:
-                logs.append(f"Resuming session: {resume_session_id}")
+            # Note: Session ID resumption is currently disabled due to Claude Code CLI
+            # returning "Session ID is already in use" errors in -p mode.
+            # TODO: Investigate proper session management for conversation persistence
 
             # 2. Build instruction with constraints
             constraints = AgentConstraints()
@@ -507,7 +508,7 @@ class RunService:
                 worktree_path=worktree_info.path,
                 instruction=instruction_with_constraints,
                 on_output=lambda line: self._log_output(run.id, line),
-                resume_session_id=resume_session_id,
+                # Don't pass resume_session_id - see note above
             )
 
             if not result.success:
