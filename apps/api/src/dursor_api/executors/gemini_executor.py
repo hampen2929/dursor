@@ -59,29 +59,31 @@ class GeminiExecutor:
         env.update(self.options.env_vars)
 
         # Build command
-        # Gemini CLI: gemini --yolo (reads prompt from stdin)
+        # Gemini CLI: gemini "prompt" --yolo
         # --yolo = auto-approve all actions
         # See: https://github.com/google-gemini/gemini-cli
         cmd = [
             self.options.gemini_cli_path,
+            instruction,  # Pass instruction as positional argument
             "--yolo",
         ]
 
-        logs.append(f"Executing: {' '.join(cmd)}")
+        # Don't log full instruction - it can be very long
+        cmd_display = [self.options.gemini_cli_path, f"<instruction:{len(instruction)} chars>", "--yolo"]
+        logs.append(f"Executing: {' '.join(cmd_display)}")
         logs.append(f"Working directory: {worktree_path}")
         logs.append(f"Instruction length: {len(instruction)} chars")
 
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(worktree_path),
                 env=env,
             )
 
-            # Stream output - must run concurrently with stdin write to avoid deadlock
+            # Stream output from CLI
             async def read_output():
                 while True:
                     line = await process.stdout.readline()
@@ -95,18 +97,9 @@ class GeminiExecutor:
                         if on_output:
                             await on_output(decoded)
 
-            async def write_stdin():
-                # Write instruction to stdin with newline to signal end of input
-                process.stdin.write(instruction.encode("utf-8"))
-                process.stdin.write(b"\n")
-                await process.stdin.drain()
-                process.stdin.close()
-                await process.stdin.wait_closed()
-
             try:
-                # Run stdin write and stdout read concurrently to avoid deadlock
                 await asyncio.wait_for(
-                    asyncio.gather(write_stdin(), read_output()),
+                    read_output(),
                     timeout=self.options.timeout_seconds,
                 )
             except TimeoutError:

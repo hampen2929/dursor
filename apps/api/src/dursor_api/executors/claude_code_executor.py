@@ -76,12 +76,12 @@ class ClaudeCodeExecutor:
         # Note: Don't change HOME as Claude CLI needs access to ~/.claude for auth
 
         # Build command
-        # Use --print (-p) for non-interactive mode
-        # Pass instruction via stdin to avoid shell argument length limits
+        # Use --print (-p) for non-interactive mode with instruction as argument
+        # Note: Using create_subprocess_exec avoids shell escaping issues
         # Use --output-format json to get session ID in response
         cmd = [
             self.options.claude_cli_path,
-            "-p", "-",  # Read from stdin
+            "-p", instruction,  # Pass instruction directly as argument
             "--output-format", "json",
         ]
 
@@ -91,17 +91,18 @@ class ClaudeCodeExecutor:
             cmd.extend(["--session-id", resume_session_id])
             logs.append(f"Continuing session: {resume_session_id}")
 
-        logs.append(f"Executing: {' '.join(cmd)}")
+        # Don't log full instruction - it can be very long
+        cmd_display = [self.options.claude_cli_path, "-p", f"<instruction:{len(instruction)} chars>", "--output-format", "json"]
+        logs.append(f"Executing: {' '.join(cmd_display)}")
         logs.append(f"Working directory: {worktree_path}")
         logs.append(f"Instruction length: {len(instruction)} chars")
-        logger.info(f"Starting Claude Code CLI: {' '.join(cmd)}")
+        logger.info(f"Starting Claude Code CLI: {' '.join(cmd_display)}")
         logger.info(f"Working directory: {worktree_path}")
         logger.info(f"Instruction length: {len(instruction)} chars")
 
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(worktree_path),
@@ -109,7 +110,7 @@ class ClaudeCodeExecutor:
             )
             logger.info(f"Process started with PID: {process.pid}")
 
-            # Stream output - must run concurrently with stdin write to avoid deadlock
+            # Stream output from CLI
             async def read_output():
                 line_count = 0
                 while True:
@@ -126,25 +127,13 @@ class ClaudeCodeExecutor:
                             await on_output(decoded)
                 logger.info(f"Read {line_count} lines of output")
 
-            async def write_stdin():
-                # Write instruction to stdin with newline to signal end of input
-                logger.info("Writing instruction to stdin...")
-                process.stdin.write(instruction.encode("utf-8"))
-                process.stdin.write(b"\n")
-                await process.stdin.drain()
-                process.stdin.close()
-                await process.stdin.wait_closed()
-                logger.info("Stdin closed")
-
             try:
-                # Run stdin write and stdout read concurrently to avoid deadlock
-                # If output buffer fills while waiting for stdin, it would block
-                logger.info("Starting concurrent stdin/stdout handling...")
+                logger.info("Reading output...")
                 await asyncio.wait_for(
-                    asyncio.gather(write_stdin(), read_output()),
+                    read_output(),
                     timeout=self.options.timeout_seconds,
                 )
-                logger.info("Concurrent handling completed")
+                logger.info("Output reading completed")
             except TimeoutError:
                 logger.error(f"Execution timed out after {self.options.timeout_seconds} seconds")
                 process.kill()
