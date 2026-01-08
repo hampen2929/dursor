@@ -178,15 +178,17 @@ export default function BreakdownModal({ isOpen, onClose }: BreakdownModalProps)
         branch: selectedBranch,
       });
 
-      // Start breakdown analysis
-      const result = await breakdownApi.analyze({
+      // Start breakdown analysis (returns immediately with 'running' status)
+      const initialResult = await breakdownApi.analyze({
         content: content.trim(),
         executor_type: executorType,
         repo_id: repoResult.id,
       });
 
+      console.log('Breakdown started:', initialResult);
+
       // Start streaming logs
-      cleanupRef.current = breakdownApi.streamLogs(result.breakdown_id, {
+      cleanupRef.current = breakdownApi.streamLogs(initialResult.breakdown_id, {
         onLine: (line) => {
           setLogs((prev) => [...prev, line]);
         },
@@ -198,24 +200,40 @@ export default function BreakdownModal({ isOpen, onClose }: BreakdownModalProps)
         },
       });
 
-      // Log the result for debugging
-      console.log('Breakdown result:', result);
+      // Poll for the final result
+      const pollInterval = 2000; // 2 seconds
+      const maxAttempts = 180; // 6 minutes max
+      let attempts = 0;
+      let finalResult = initialResult;
 
-      setBreakdownResult(result);
+      while (
+        (finalResult.status === 'running' || finalResult.status === 'pending') &&
+        attempts < maxAttempts
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        attempts++;
 
-      if (result.status === 'succeeded') {
+        try {
+          finalResult = await breakdownApi.getResult(initialResult.breakdown_id);
+          console.log(`Poll attempt ${attempts}:`, finalResult.status);
+        } catch (pollErr) {
+          console.error('Poll error:', pollErr);
+          // Continue polling on error
+        }
+      }
+
+      setBreakdownResult(finalResult);
+
+      if (finalResult.status === 'succeeded') {
         setPhase('result');
         // Select all tasks by default
-        setSelectedTasks(new Set(result.tasks.map((_, i) => i)));
-      } else if (result.status === 'failed') {
-        setError(result.error || 'Breakdown failed');
+        setSelectedTasks(new Set(finalResult.tasks.map((_, i) => i)));
+      } else if (finalResult.status === 'failed') {
+        setError(finalResult.error || 'Breakdown failed');
         setPhase('input');
       } else {
-        // Handle running/pending status - wait for completion via log polling
-        console.log('Breakdown still running, status:', result.status);
-        // Keep showing analyzing phase, the streamLogs will handle completion
-        // But we need to poll for the final result
-        setError(`Breakdown status: ${result.status}. This may take a while.`);
+        // Timeout or unknown status
+        setError('Breakdown timed out. Please try again.');
         setPhase('input');
       }
     } catch (err) {
