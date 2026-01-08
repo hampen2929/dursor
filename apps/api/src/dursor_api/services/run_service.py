@@ -279,21 +279,27 @@ class RunService:
         )
 
         worktree_info = None
+        branch_number: int | None = None
 
         if existing_run and existing_run.worktree_path:
             # Verify worktree is still valid (exists and is a valid git repo)
             worktree_path = Path(existing_run.worktree_path)
             if await self.git_service.is_valid_worktree(worktree_path):
-                # Reuse existing worktree
+                # Reuse existing worktree and branch number
                 worktree_info = WorktreeInfo(
                     path=worktree_path,
                     branch_name=existing_run.working_branch,
                     base_branch=existing_run.base_ref or base_ref,
                     created_at=existing_run.created_at,
                 )
+                branch_number = existing_run.branch_number
                 logger.info(f"Reusing existing worktree: {worktree_path}")
             else:
                 logger.warning(f"Worktree invalid or broken, will create new: {worktree_path}")
+
+        # Get next branch number if not reusing
+        if branch_number is None:
+            branch_number = await self.run_dao.get_next_branch_number(task_id)
 
         # Create the run record
         run = await self.run_dao.create(
@@ -301,6 +307,7 @@ class RunService:
             instruction=instruction,
             executor_type=executor_type,
             base_ref=base_ref,
+            branch_number=branch_number,
         )
 
         if not worktree_info:
@@ -309,6 +316,7 @@ class RunService:
                 repo=repo,
                 base_branch=base_ref,
                 run_id=run.id,
+                branch_number=branch_number,
             )
 
         # Update run with worktree info
