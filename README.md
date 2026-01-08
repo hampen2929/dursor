@@ -27,25 +27,20 @@
 
 dursor is designed for:
 
-- **People who want to complete implementations through chat**
+- **People who prefer a web-based chat interface**
   - Tired of AI conversations in CLI tools
   - Tired of AI-assisted coding in IDEs
-  - Prefer a web-based chat interface for code generation
+  - Want a simple, intuitive chat experience for code generation
+
+- **People who want to run AI agents on localhost with their own API keys**
+  - Full control over your development environment
+  - Self-hosted solution that keeps your code and data within your network
+  - Works with your existing API keys (BYO API Key)
 
 - **People who want to use multiple AI models**
   - Compare outputs from different models side-by-side
   - Choose the best implementation from multiple options
   - Not locked into a single AI provider
-
-- **Organizations that cannot use SaaS AI tools (like Cursor)**
-  - Your company restricts SaaS tool installations but allows API access
-  - Self-hosted solution that runs entirely on your own infrastructure
-  - Keep your code and data within your network
-
-- **People who want to run AI agents on localhost**
-  - Full control over your development environment
-  - No dependency on external services beyond the LLM APIs
-  - Works with your existing API keys
 
 ### Comparison Matrix
 
