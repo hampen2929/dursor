@@ -182,9 +182,7 @@ export default function HomePage() {
   const getValidationErrors = () => {
     const errors: { message: string; action?: { label: string; href: string } }[] = [];
 
-    if (!instruction.trim()) {
-      errors.push({ message: '指示を入力してください' });
-    }
+    // Note: We don't show "指示を入力してください" as it's obvious from the placeholder
     if (!repos) {
       errors.push({
         message: 'GitHub Appが未設定です',
