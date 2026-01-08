@@ -52,8 +52,9 @@ dursor is designed for:
 |  | dursor | LLM Providers (Claude Code, Codex, Gemini CLI) | AI Coding SaaS (Cursor Cloud Agents) | AI IDE (Cursor, Windsurf, etc.) |
 |---|:---:|:---:|:---:|:---:|
 | Multiple AI models | ✅ | ❌ | ✅ | ✅ |
-| On-premises / Localhost | ✅ | ✅ | ❌ | ❌ |
-| Web-based chat interface | ✅ | ❌ | ✅ | ❌ |
+| On-premises / Localhost | ✅ | ✅ | ❌ | ✅ |
+| Web-based chat interface | ✅ | ✅ | ✅ | ❌ |
+| CLI integration | ❌ | ✅ | ❌ | ❌ |
 | IDE integration | ❌ | ❌ | ❌ | ✅ |
 
 ## Quick Start
