@@ -49,13 +49,13 @@ dursor is designed for:
 
 ### Comparison Matrix
 
-|  | dursor | LLM Providers (Claude Code, Codex, Gemini CLI) | AI Coding SaaS (Cursor Cloud Agents) | AI IDE (Cursor, Windsurf, etc.) |
+|  | dursor | Cursor (Cloud Agents) | Cursor (IDE) | LLM Providers (Claude Code, Codex, Gemini CLI) |
 |---|:---:|:---:|:---:|:---:|
-| Multiple AI models | ✅ | ❌ | ✅ | ✅ |
-| On-premises / Localhost | ✅ | ✅ | ❌ | ✅ |
-| Web-based chat interface | ✅ | ✅ | ✅ | ❌ |
-| CLI integration | ❌ | ✅ | ❌ | ❌ |
-| IDE integration | ❌ | ❌ | ❌ | ✅ |
+| Multiple AI models | ✅ | ✅ | ✅ | ❌ |
+| On-premises / Localhost | ✅ | ❌ | ✅ | ✅ |
+| Web-based chat interface | ✅ | ✅ | ❌ | ✅ |
+| CLI integration | ❌ | ❌ | ❌ | ✅ |
+| IDE integration | ❌ | ❌ | ✅ | ❌ |
 
 ## Quick Start
 
