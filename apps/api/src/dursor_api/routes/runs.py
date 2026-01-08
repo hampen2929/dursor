@@ -1,9 +1,14 @@
 """Run routes."""
 
-from fastapi import APIRouter, Depends, HTTPException
+import json
+from typing import AsyncGenerator
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from dursor_api.domain.models import Run, RunCreate, RunsCreated
-from dursor_api.dependencies import get_run_service
+from dursor_api.dependencies import get_output_manager, get_run_service
+from dursor_api.services.output_manager import OutputManager
 from dursor_api.services.run_service import RunService
 
 router = APIRouter(tags=["runs"])
@@ -68,3 +73,56 @@ async def cleanup_worktree(
     cleaned = await run_service.cleanup_worktree(run_id)
     if not cleaned:
         raise HTTPException(status_code=400, detail="Run has no worktree or not found")
+
+
+@router.get("/runs/{run_id}/logs/stream")
+async def stream_run_logs(
+    run_id: str,
+    from_line: int = Query(0, ge=0, description="Line number to start from (0-based)"),
+    run_service: RunService = Depends(get_run_service),
+    output_manager: OutputManager = Depends(get_output_manager),
+) -> StreamingResponse:
+    """Stream run logs via Server-Sent Events (SSE).
+
+    This endpoint provides real-time streaming of CLI output during run execution.
+    - Historical lines from `from_line` onwards are sent immediately
+    - New lines are streamed as they arrive
+    - A 'complete' event is sent when the run finishes
+
+    Event format:
+    - data events: {"line_number": int, "content": str, "timestamp": float}
+    - complete event: signals end of stream
+    """
+    # Verify run exists
+    run = await run_service.get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    async def generate_sse() -> AsyncGenerator[str, None]:
+        """Generate SSE events from output stream."""
+        try:
+            async for output_line in output_manager.subscribe(run_id, from_line):
+                data = json.dumps({
+                    "line_number": output_line.line_number,
+                    "content": output_line.content,
+                    "timestamp": output_line.timestamp,
+                })
+                yield f"data: {data}\n\n"
+
+            # Send completion event
+            yield "event: complete\ndata: {}\n\n"
+
+        except Exception as e:
+            # Send error event
+            error_data = json.dumps({"error": str(e)})
+            yield f"event: error\ndata: {error_data}\n\n"
+
+    return StreamingResponse(
+        generate_sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )

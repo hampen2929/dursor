@@ -16,6 +16,7 @@ import type {
   Run,
   RunCreate,
   RunsCreated,
+  OutputLine,
   PR,
   PRCreate,
   PRCreateAuto,
@@ -151,6 +152,62 @@ export const runsApi = {
 
   cancel: (runId: string) =>
     fetchApi<void>(`/runs/${runId}/cancel`, { method: 'POST' }),
+
+  /**
+   * Stream run logs via Server-Sent Events (SSE).
+   *
+   * @param runId - The run ID to stream logs for
+   * @param options - Streaming options
+   * @returns Cleanup function to close the connection
+   */
+  streamLogs: (
+    runId: string,
+    options: {
+      fromLine?: number;
+      onLine: (line: OutputLine) => void;
+      onComplete: () => void;
+      onError: (error: Error) => void;
+    }
+  ): (() => void) => {
+    const fromLine = options.fromLine ?? 0;
+    const url = `${API_BASE}/runs/${runId}/logs/stream?from_line=${fromLine}`;
+    const eventSource = new EventSource(url);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as OutputLine;
+        options.onLine(data);
+      } catch (e) {
+        console.error('Failed to parse SSE message:', e);
+      }
+    };
+
+    eventSource.addEventListener('complete', () => {
+      eventSource.close();
+      options.onComplete();
+    });
+
+    eventSource.addEventListener('error', () => {
+      // Check if it's a connection error or server-sent error
+      if (eventSource.readyState === EventSource.CLOSED) {
+        eventSource.close();
+        options.onError(new Error('SSE connection closed'));
+      }
+    });
+
+    eventSource.onerror = () => {
+      // EventSource will auto-reconnect on some errors
+      // Only report error if connection is closed
+      if (eventSource.readyState === EventSource.CLOSED) {
+        options.onError(new Error('SSE connection failed'));
+      }
+    };
+
+    // Return cleanup function
+    return () => {
+      eventSource.close();
+    };
+  },
 };
 
 // PRs

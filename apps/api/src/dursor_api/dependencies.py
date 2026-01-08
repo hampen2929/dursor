@@ -7,6 +7,7 @@ from dursor_api.services.crypto_service import CryptoService
 from dursor_api.services.git_service import GitService
 from dursor_api.services.github_service import GitHubService
 from dursor_api.services.model_service import ModelService
+from dursor_api.services.output_manager import OutputManager
 from dursor_api.services.repo_service import RepoService
 from dursor_api.services.run_service import RunService
 from dursor_api.services.pr_service import PRService
@@ -26,6 +27,7 @@ from dursor_api.storage.dao import (
 _crypto_service: CryptoService | None = None
 _run_service: RunService | None = None
 _git_service: GitService | None = None
+_output_manager: OutputManager | None = None
 
 
 def get_crypto_service() -> CryptoService:
@@ -93,6 +95,14 @@ def get_git_service() -> GitService:
     return _git_service
 
 
+def get_output_manager() -> OutputManager:
+    """Get the output manager singleton."""
+    global _output_manager
+    if _output_manager is None:
+        _output_manager = OutputManager()
+    return _output_manager
+
+
 async def get_run_service() -> RunService:
     """Get the run service (singleton for queue management)."""
     global _run_service
@@ -103,8 +113,15 @@ async def get_run_service() -> RunService:
         repo_service = await get_repo_service()
         git_service = get_git_service()
         github_service = await get_github_service()
+        output_manager = get_output_manager()
         _run_service = RunService(
-            run_dao, task_dao, model_service, repo_service, git_service, github_service
+            run_dao,
+            task_dao,
+            model_service,
+            repo_service,
+            git_service,
+            github_service,
+            output_manager,
         )
     return _run_service
 

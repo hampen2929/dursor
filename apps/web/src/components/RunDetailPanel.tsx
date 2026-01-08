@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { prsApi } from '@/lib/api';
 import type { Run } from '@/types';
 import { DiffViewer } from '@/components/DiffViewer';
+import { StreamingLogs } from '@/components/StreamingLogs';
 import { Button } from './ui/Button';
 import { Input, Textarea } from './ui/Input';
 import { useToast } from './ui/Toast';
@@ -264,30 +265,95 @@ export function RunDetailPanel({
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-4" role="tabpanel">
+        {/* Running status - show logs tab or status indicator */}
         {run.status === 'running' && (
-          <div className="flex flex-col items-center justify-center h-full">
-            <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
-            <p className="text-gray-400 font-medium">Running...</p>
-            <p className="text-gray-500 text-sm mt-1">This may take a few moments</p>
-          </div>
+          <>
+            {activeTab === 'logs' ? (
+              <StreamingLogs
+                runId={run.id}
+                isRunning={true}
+                initialLogs={run.logs}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full">
+                <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
+                <p className="text-gray-400 font-medium">Running...</p>
+                <p className="text-gray-500 text-sm mt-1">This may take a few moments</p>
+                <button
+                  onClick={() => setActiveTab('logs')}
+                  className="mt-4 text-blue-400 hover:text-blue-300 text-sm underline"
+                >
+                  View live logs
+                </button>
+              </div>
+            )}
+          </>
         )}
 
+        {/* Queued status - show logs tab or status indicator */}
         {run.status === 'queued' && (
-          <div className="flex flex-col items-center justify-center h-full">
-            <ClockIcon className="w-10 h-10 text-gray-500 mb-4" />
-            <p className="text-gray-400 font-medium">Waiting in queue...</p>
-            <p className="text-gray-500 text-sm mt-1">Your run will start soon</p>
-          </div>
+          <>
+            {activeTab === 'logs' ? (
+              <StreamingLogs
+                runId={run.id}
+                isRunning={false}
+                initialLogs={run.logs}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full">
+                <ClockIcon className="w-10 h-10 text-gray-500 mb-4" />
+                <p className="text-gray-400 font-medium">Waiting in queue...</p>
+                <p className="text-gray-500 text-sm mt-1">Your run will start soon</p>
+              </div>
+            )}
+          </>
         )}
 
+        {/* Failed status */}
         {run.status === 'failed' && (
-          <div className="p-4 bg-red-900/20 border border-red-800/50 rounded-lg">
-            <div className="flex items-center gap-2 mb-2">
-              <ExclamationTriangleIcon className="w-5 h-5 text-red-400" />
-              <h3 className="font-medium text-red-400">Execution Failed</h3>
-            </div>
-            <p className="text-sm text-red-300">{run.error}</p>
-          </div>
+          <>
+            {activeTab === 'logs' ? (
+              <div className="space-y-4">
+                {/* Error summary at top */}
+                <div className="p-4 bg-red-900/20 border border-red-800/50 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ExclamationTriangleIcon className="w-5 h-5 text-red-400" />
+                    <h3 className="font-medium text-red-400">Execution Failed</h3>
+                  </div>
+                  <p className="text-sm text-red-300">{run.error}</p>
+                </div>
+                {/* Logs below */}
+                <div className="font-mono text-xs space-y-1 bg-gray-800/50 rounded-lg p-3">
+                  {!run.logs || run.logs.length === 0 ? (
+                    <p className="text-gray-500 text-center py-4">No logs available.</p>
+                  ) : (
+                    run.logs.map((log, i) => (
+                      <div key={i} className="text-gray-400 leading-relaxed">
+                        <span className="text-gray-600 mr-2 select-none">{i + 1}</span>
+                        {log}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-red-900/20 border border-red-800/50 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <ExclamationTriangleIcon className="w-5 h-5 text-red-400" />
+                  <h3 className="font-medium text-red-400">Execution Failed</h3>
+                </div>
+                <p className="text-sm text-red-300">{run.error}</p>
+                {run.logs && run.logs.length > 0 && (
+                  <button
+                    onClick={() => setActiveTab('logs')}
+                    className="mt-3 text-blue-400 hover:text-blue-300 text-sm underline"
+                  >
+                    View logs ({run.logs.length} lines)
+                  </button>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {run.status === 'succeeded' && (

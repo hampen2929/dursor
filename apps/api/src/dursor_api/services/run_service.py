@@ -38,6 +38,7 @@ from dursor_api.storage.dao import RunDAO, TaskDAO
 
 if TYPE_CHECKING:
     from dursor_api.services.github_service import GitHubService
+    from dursor_api.services.output_manager import OutputManager
 
 
 class QueueAdapter:
@@ -109,6 +110,7 @@ class RunService:
         repo_service: RepoService,
         git_service: GitService | None = None,
         github_service: "GitHubService | None" = None,
+        output_manager: "OutputManager | None" = None,
     ):
         self.run_dao = run_dao
         self.task_dao = task_dao
@@ -116,6 +118,7 @@ class RunService:
         self.repo_service = repo_service
         self.git_service = git_service or GitService()
         self.github_service = github_service
+        self.output_manager = output_manager
         self.queue = QueueAdapter()
         self.llm_router = LLMRouter()
         self.claude_executor = ClaudeCodeExecutor(
@@ -637,6 +640,11 @@ class RunService:
                 commit_sha=commit_sha,
             )
 
+        finally:
+            # Mark output stream as complete for SSE subscribers
+            if self.output_manager:
+                await self.output_manager.mark_complete(run.id)
+
     async def _read_and_remove_summary_file(
         self,
         worktree_path: Path,
@@ -678,8 +686,8 @@ class RunService:
     async def _log_output(self, run_id: str, line: str) -> None:
         """Log output from CLI execution.
 
-        This logs output to console for debugging and could be extended
-        for SSE streaming in the future.
+        This logs output to console for debugging and publishes to
+        OutputManager for SSE streaming to connected clients.
 
         Args:
             run_id: Run ID.
@@ -687,7 +695,10 @@ class RunService:
         """
         # Log to console for debugging
         logger.info(f"[{run_id[:8]}] {line}")
-        # TODO: Implement SSE streaming for real-time output
+
+        # Publish to OutputManager for SSE streaming
+        if self.output_manager:
+            self.output_manager.publish(run_id, line)
 
     def _generate_commit_message(self, instruction: str, summary: str | None) -> str:
         """Generate a commit message from instruction and summary.
