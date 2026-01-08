@@ -198,12 +198,9 @@ export default function BreakdownModal({ isOpen, onClose }: BreakdownModalProps)
         },
       });
 
-      // Poll for result (breakdown might still be running)
-      // Wait a bit for the analysis to complete
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Log the result for debugging
+      console.log('Breakdown result:', result);
 
-      // The result is returned immediately but might have running status
-      // For simplicity, we'll use the initial result
       setBreakdownResult(result);
 
       if (result.status === 'succeeded') {
@@ -212,6 +209,13 @@ export default function BreakdownModal({ isOpen, onClose }: BreakdownModalProps)
         setSelectedTasks(new Set(result.tasks.map((_, i) => i)));
       } else if (result.status === 'failed') {
         setError(result.error || 'Breakdown failed');
+        setPhase('input');
+      } else {
+        // Handle running/pending status - wait for completion via log polling
+        console.log('Breakdown still running, status:', result.status);
+        // Keep showing analyzing phase, the streamLogs will handle completion
+        // But we need to poll for the final result
+        setError(`Breakdown status: ${result.status}. This may take a while.`);
         setPhase('input');
       }
     } catch (err) {
