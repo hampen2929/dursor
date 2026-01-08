@@ -14,8 +14,6 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-logger = logging.getLogger(__name__)
-
 from dursor_api.agents.llm_router import LLMConfig, LLMRouter
 from dursor_api.agents.patch_agent import PatchAgent
 from dursor_api.config import settings
@@ -31,6 +29,7 @@ from dursor_api.domain.models import (
 from dursor_api.executors.claude_code_executor import ClaudeCodeExecutor, ClaudeCodeOptions
 from dursor_api.executors.codex_executor import CodexExecutor, CodexOptions
 from dursor_api.executors.gemini_executor import GeminiExecutor, GeminiOptions
+from dursor_api.services.commit_message import ensure_english_commit_message
 from dursor_api.services.git_service import GitService
 from dursor_api.services.model_service import ModelService
 from dursor_api.services.repo_service import RepoService
@@ -40,6 +39,7 @@ if TYPE_CHECKING:
     from dursor_api.services.github_service import GitHubService
     from dursor_api.services.output_manager import OutputManager
 
+logger = logging.getLogger(__name__)
 
 class QueueAdapter:
     """Simple in-memory queue adapter for v0.1.
@@ -109,8 +109,8 @@ class RunService:
         model_service: ModelService,
         repo_service: RepoService,
         git_service: GitService | None = None,
-        github_service: "GitHubService | None" = None,
-        output_manager: "OutputManager | None" = None,
+        github_service: GitHubService | None = None,
+        output_manager: OutputManager | None = None,
     ):
         self.run_dao = run_dao
         self.task_dao = task_dao
@@ -199,7 +199,9 @@ class RunService:
             if not model_ids:
                 # If the task is already locked to patch_agent, reuse the most recent
                 # model set (grouped by latest patch_agent instruction).
-                patch_runs = [r for r in existing_runs if r.executor_type == ExecutorType.PATCH_AGENT]
+                patch_runs = [
+                    r for r in existing_runs if r.executor_type == ExecutorType.PATCH_AGENT
+                ]
                 if patch_runs:
                     latest_instruction = patch_runs[0].instruction  # newest-first
                     model_ids = []
@@ -324,8 +326,8 @@ class RunService:
         # Enqueue for execution based on executor type
         self.queue.enqueue(
             run.id,
-            lambda r=run, wt=worktree_info, et=executor_type, ps=previous_session_id, rp=repo: self._execute_cli_run(
-                r, wt, et, ps, rp
+            lambda r=run, wt=worktree_info, et=executor_type, ps=previous_session_id, rp=repo: (
+                self._execute_cli_run(r, wt, et, ps, rp)
             ),
         )
 
@@ -517,8 +519,12 @@ class RunService:
 
             # 2. Build instruction with constraints
             constraints = AgentConstraints()
-            instruction_with_constraints = f"{constraints.to_prompt()}\n\n## Task\n{run.instruction}"
-            logger.info(f"[{run.id[:8]}] Instruction length: {len(instruction_with_constraints)} chars")
+            instruction_with_constraints = (
+                f"{constraints.to_prompt()}\n\n## Task\n{run.instruction}"
+            )
+            logger.info(
+                f"[{run.id[:8]}] Instruction length: {len(instruction_with_constraints)} chars"
+            )
 
             # 3. Execute the CLI (file editing only)
             logger.info(f"[{run.id[:8]}] Executing CLI...")
@@ -538,7 +544,8 @@ class RunService:
             ):
                 # Retry once without session continuation if the CLI rejects the session.
                 logs.append(
-                    "Session continuation failed (session already in use). Retrying without session_id."
+                    "Session continuation failed (session already in use). "
+                    "Retrying without session_id."
                 )
                 result = await executor.execute(
                     worktree_path=worktree_info.path,
@@ -596,6 +603,11 @@ class RunService:
 
             # 7. Commit (automatic)
             commit_message = self._generate_commit_message(run.instruction, final_summary)
+            commit_message = await ensure_english_commit_message(
+                commit_message,
+                llm_router=self.llm_router,
+                hint=final_summary or "",
+            )
             commit_sha = await self.git_service.commit(
                 worktree_info.path,
                 message=commit_message,

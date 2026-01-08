@@ -103,28 +103,45 @@ class GitService:
         def _create_worktree():
             source_repo = git.Repo(repo.workspace_path)
 
-            # Fetch to ensure we have latest refs
+            default_branch = repo.default_branch or "main"
+
+            # Fetch to ensure we have latest refs (best-effort)
             try:
-                source_repo.remotes.origin.fetch()
+                source_repo.git.fetch("origin", "--prune")
             except Exception:
                 # Ignore fetch errors (might be offline)
                 pass
 
-            # Ensure base branch exists locally
+            # Ensure the *source* repo is at the latest state of the default branch
+            # before creating a worktree.
             try:
-                source_repo.git.checkout(base_branch)
+                # Verify the remote default branch exists
+                source_repo.git.show_ref("--verify", f"refs/remotes/origin/{default_branch}")
+                # Force local default branch to match origin/default (latest)
+                source_repo.git.checkout("-B", default_branch, f"origin/{default_branch}")
             except git.GitCommandError:
+                # Fallback: try best-effort checkout without forcing reset
                 try:
-                    source_repo.git.checkout("-b", base_branch, f"origin/{base_branch}")
+                    source_repo.git.checkout(default_branch)
                 except git.GitCommandError:
                     pass
+
+            # Choose a base ref for the worktree.
+            # Prefer remote refs to ensure we branch from the latest remote state.
+            base_ref = base_branch
+            try:
+                source_repo.git.show_ref("--verify", f"refs/remotes/origin/{base_branch}")
+                base_ref = f"origin/{base_branch}"
+            except git.GitCommandError:
+                # If base_branch isn't a remote branch, keep it as-is (could be SHA/tag).
+                base_ref = base_branch
 
             # Create worktree with new branch
             source_repo.git.worktree(
                 "add",
                 "-b", branch_name,
                 str(worktree_path),
-                base_branch,
+                base_ref,
             )
 
             return WorktreeInfo(
@@ -539,7 +556,7 @@ class GitService:
 
             if auth_url:
                 # Use authenticated URL temporarily
-                with repo.config_writer() as config:
+                with repo.config_writer():
                     # Save original URL
                     try:
                         original_url = repo.remotes.origin.url
