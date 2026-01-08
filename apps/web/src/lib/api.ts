@@ -21,6 +21,7 @@ import type {
   PRCreate,
   PRCreateAuto,
   PRCreated,
+  PRCreateLink,
   PRUpdate,
   PRUpdated,
   GitHubAppConfig,
@@ -240,6 +241,18 @@ export const prsApi = {
 
   createAuto: (taskId: string, data: PRCreateAuto) =>
     fetchApi<PRCreated>(`/tasks/${taskId}/prs/auto`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  createLink: (taskId: string, data: PRCreate) =>
+    fetchApi<PRCreateLink>(`/tasks/${taskId}/prs/link`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  createLinkAuto: (taskId: string, data: PRCreateAuto) =>
+    fetchApi<PRCreateLink>(`/tasks/${taskId}/prs/auto/link`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

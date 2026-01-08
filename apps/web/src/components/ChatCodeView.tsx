@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { tasksApi, runsApi, prsApi } from '@/lib/api';
+import useSWR from 'swr';
+import { tasksApi, runsApi, prsApi, preferencesApi } from '@/lib/api';
 import type { Message, ModelProfile, ExecutorType, Run, RunStatus } from '@/types';
 import { Button } from './ui/Button';
 import { DiffViewer } from './DiffViewer';
@@ -65,8 +66,11 @@ export function ChatCodeView({
   const [runTabs, setRunTabs] = useState<Record<string, RunTab>>({});
   const [creatingPR, setCreatingPR] = useState(false);
   const [prResult, setPRResult] = useState<{ url: string; number: number } | null>(null);
+  const [prLinkResult, setPRLinkResult] = useState<{ url: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { success, error } = useToast();
+
+  const { data: preferences } = useSWR('preferences', preferencesApi.get);
 
   // Determine the locked executor:
   // - If we already have runs, lock to the earliest run's executor_type.
@@ -108,12 +112,20 @@ export function ChatCodeView({
 
     setCreatingPR(true);
     try {
-      const result = await prsApi.createAuto(taskId, {
-        selected_run_id: latestSuccessfulRun.id,
-      });
-      setPRResult({ url: result.url, number: result.number });
-      onPRCreated();
-      success('Pull request created successfully!');
+      if (preferences?.default_pr_creation_mode === 'link') {
+        const result = await prsApi.createLinkAuto(taskId, {
+          selected_run_id: latestSuccessfulRun.id,
+        });
+        setPRLinkResult({ url: result.url });
+        success('PR link generated. Create the PR on GitHub.');
+      } else {
+        const result = await prsApi.createAuto(taskId, {
+          selected_run_id: latestSuccessfulRun.id,
+        });
+        setPRResult({ url: result.url, number: result.number });
+        onPRCreated();
+        success('Pull request created successfully!');
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create PR';
       error(message);
@@ -314,6 +326,16 @@ export function ChatCodeView({
             >
               <CheckCircleIcon className="w-4 h-4" />
               PR #{prResult.number}
+              <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+            </a>
+          ) : prLinkResult ? (
+            <a
+              href={prLinkResult.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+            >
+              Open PR link
               <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
             </a>
           ) : latestSuccessfulRun ? (

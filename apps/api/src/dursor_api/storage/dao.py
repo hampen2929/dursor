@@ -691,6 +691,7 @@ class UserPreferencesDAO:
         default_repo_name: str | None = None,
         default_branch: str | None = None,
         default_branch_prefix: str | None = None,
+        default_pr_creation_mode: str | None = None,
     ) -> UserPreferences:
         """Save user preferences (upsert)."""
         now = now_iso()
@@ -709,10 +710,18 @@ class UserPreferencesDAO:
                     default_repo_name = ?,
                     default_branch = ?,
                     default_branch_prefix = ?,
+                    default_pr_creation_mode = ?,
                     updated_at = ?
                 WHERE id = 1
                 """,
-                (default_repo_owner, default_repo_name, default_branch, default_branch_prefix, now),
+                (
+                    default_repo_owner,
+                    default_repo_name,
+                    default_branch,
+                    default_branch_prefix,
+                    default_pr_creation_mode,
+                    now,
+                ),
             )
         else:
             await self.db.connection.execute(
@@ -723,12 +732,21 @@ class UserPreferencesDAO:
                     default_repo_name,
                     default_branch,
                     default_branch_prefix,
+                    default_pr_creation_mode,
                     created_at,
                     updated_at
                 )
-                VALUES (1, ?, ?, ?, ?, ?, ?)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (default_repo_owner, default_repo_name, default_branch, default_branch_prefix, now, now),
+                (
+                    default_repo_owner,
+                    default_repo_name,
+                    default_branch,
+                    default_branch_prefix,
+                    default_pr_creation_mode,
+                    now,
+                    now,
+                ),
             )
 
         await self.db.connection.commit()
@@ -738,6 +756,7 @@ class UserPreferencesDAO:
             default_repo_name=default_repo_name,
             default_branch=default_branch,
             default_branch_prefix=default_branch_prefix,
+            default_pr_creation_mode=default_pr_creation_mode or "create",
         )
 
     def _row_to_model(self, row: Any) -> UserPreferences:
@@ -747,5 +766,10 @@ class UserPreferencesDAO:
             default_branch=row["default_branch"],
             default_branch_prefix=(
                 row["default_branch_prefix"] if "default_branch_prefix" in row.keys() else None
+            ),
+            default_pr_creation_mode=(
+                row["default_pr_creation_mode"]
+                if "default_pr_creation_mode" in row.keys() and row["default_pr_creation_mode"]
+                else "create"
             ),
         )

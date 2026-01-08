@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from dursor_api.domain.enums import ExecutorType, MessageRole, Provider, RunStatus
+from dursor_api.domain.enums import ExecutorType, MessageRole, PRCreationMode, Provider, RunStatus
 
 # ============================================================
 # Model Profile
@@ -442,6 +442,7 @@ class UserPreferences(BaseModel):
     default_repo_name: str | None = None
     default_branch: str | None = None
     default_branch_prefix: str | None = None
+    default_pr_creation_mode: PRCreationMode = PRCreationMode.CREATE
 
 
 class UserPreferencesSave(BaseModel):
@@ -451,3 +452,12 @@ class UserPreferencesSave(BaseModel):
     default_repo_name: str | None = None
     default_branch: str | None = None
     default_branch_prefix: str | None = None
+    default_pr_creation_mode: PRCreationMode | None = None
+
+
+class PRCreateLink(BaseModel):
+    """Response for PR creation link generation (manual PR creation)."""
+
+    url: str
+    branch: str
+    base: str
