@@ -32,23 +32,6 @@ import type {
 
 const API_BASE = '/api';
 
-// For SSE connections, we need to connect directly to the backend
-// because Next.js rewrites may buffer the response
-const getSSEBaseUrl = (): string => {
-  // In browser, use NEXT_PUBLIC_API_URL if set, otherwise try to derive from window location
-  if (typeof window !== 'undefined') {
-    const publicApiUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (publicApiUrl) {
-      return publicApiUrl;
-    }
-    // Fallback: assume backend is on port 8000 of the same host
-    // This works for local development
-    return `http://${window.location.hostname}:8000/v1`;
-  }
-  // Server-side (shouldn't happen for SSE, but just in case)
-  return process.env.API_URL || 'http://localhost:8000/v1';
-};
-
 class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -171,14 +154,24 @@ export const runsApi = {
     fetchApi<void>(`/runs/${runId}/cancel`, { method: 'POST' }),
 
   /**
-   * Stream run logs via Server-Sent Events (SSE).
+   * Get logs for a run (REST endpoint for polling).
+   */
+  getLogs: (runId: string, fromLine: number = 0) =>
+    fetchApi<{
+      logs: OutputLine[];
+      is_complete: boolean;
+      total_lines: number;
+      run_status: string;
+    }>(`/runs/${runId}/logs?from_line=${fromLine}`),
+
+  /**
+   * Stream run logs by polling the logs endpoint.
    *
-   * Note: SSE connections go directly to the backend to avoid
-   * buffering issues with Next.js rewrites.
+   * This uses polling to fetch logs in real-time from OutputManager.
    *
    * @param runId - The run ID to stream logs for
    * @param options - Streaming options
-   * @returns Cleanup function to close the connection
+   * @returns Cleanup function to stop polling
    */
   streamLogs: (
     runId: string,
@@ -189,45 +182,50 @@ export const runsApi = {
       onError: (error: Error) => void;
     }
   ): (() => void) => {
-    const fromLine = options.fromLine ?? 0;
-    // Use direct backend URL for SSE to avoid Next.js buffering
-    const sseBaseUrl = getSSEBaseUrl();
-    const url = `${sseBaseUrl}/runs/${runId}/logs/stream?from_line=${fromLine}`;
-    const eventSource = new EventSource(url);
+    let cancelled = false;
+    let nextLine = options.fromLine ?? 0;
+    const pollInterval = 500; // Poll every 500ms for responsiveness
 
-    eventSource.onmessage = (event) => {
+    const poll = async () => {
+      if (cancelled) return;
+
       try {
-        const data = JSON.parse(event.data) as OutputLine;
-        options.onLine(data);
-      } catch (e) {
-        console.error('Failed to parse SSE message:', e);
+        const result = await runsApi.getLogs(runId, nextLine);
+
+        // Send new lines
+        for (const log of result.logs) {
+          if (cancelled) break;
+          options.onLine(log);
+        }
+
+        // Update next line position
+        if (result.logs.length > 0) {
+          nextLine = result.total_lines;
+        }
+
+        // Check if complete
+        if (result.is_complete) {
+          options.onComplete();
+          return;
+        }
+
+        // Continue polling if still running
+        if (!cancelled) {
+          setTimeout(poll, pollInterval);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          options.onError(error instanceof Error ? error : new Error('Failed to fetch logs'));
+        }
       }
     };
 
-    eventSource.addEventListener('complete', () => {
-      eventSource.close();
-      options.onComplete();
-    });
-
-    eventSource.addEventListener('error', () => {
-      // Check if it's a connection error or server-sent error
-      if (eventSource.readyState === EventSource.CLOSED) {
-        eventSource.close();
-        options.onError(new Error('SSE connection closed'));
-      }
-    });
-
-    eventSource.onerror = () => {
-      // EventSource will auto-reconnect on some errors
-      // Only report error if connection is closed
-      if (eventSource.readyState === EventSource.CLOSED) {
-        options.onError(new Error('SSE connection failed'));
-      }
-    };
+    // Start polling
+    poll();
 
     // Return cleanup function
     return () => {
-      eventSource.close();
+      cancelled = true;
     };
   },
 };

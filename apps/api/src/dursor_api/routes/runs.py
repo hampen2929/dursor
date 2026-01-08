@@ -78,6 +78,49 @@ async def cleanup_worktree(
         raise HTTPException(status_code=400, detail="Run has no worktree or not found")
 
 
+@router.get("/runs/{run_id}/logs")
+async def get_run_logs(
+    run_id: str,
+    from_line: int = Query(0, ge=0, description="Line number to start from (0-based)"),
+    run_service: RunService = Depends(get_run_service),
+    output_manager: OutputManager = Depends(get_output_manager),
+):
+    """Get run logs (for polling).
+
+    Returns logs from OutputManager if the run is in progress,
+    or from the Run record if completed.
+
+    Returns:
+        Object with logs array, is_complete flag, and total line count.
+    """
+    # Verify run exists
+    run = await run_service.get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Get logs from OutputManager (for in-progress runs)
+    output_logs = await output_manager.get_history(run_id, from_line)
+    is_complete = await output_manager.is_complete(run_id)
+
+    # If we have output logs, use them
+    if output_logs:
+        return {
+            "logs": [{"line_number": ol.line_number, "content": ol.content, "timestamp": ol.timestamp} for ol in output_logs],
+            "is_complete": is_complete or run.status in ("succeeded", "failed", "canceled"),
+            "total_lines": from_line + len(output_logs),
+            "run_status": run.status,
+        }
+
+    # Fallback to run.logs (for completed runs or when OutputManager has no data)
+    run_logs = run.logs[from_line:] if run.logs else []
+    return {
+        "logs": [{"line_number": from_line + i, "content": log, "timestamp": 0} for i, log in enumerate(run_logs)],
+        "is_complete": run.status in ("succeeded", "failed", "canceled"),
+        "total_lines": len(run.logs) if run.logs else 0,
+        "run_status": run.status,
+    }
+
+
 @router.get("/runs/{run_id}/logs/stream")
 async def stream_run_logs(
     run_id: str,

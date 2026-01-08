@@ -17,14 +17,14 @@ interface StreamingLogsProps {
 }
 
 /**
- * StreamingLogs component displays CLI output in real-time via SSE.
+ * StreamingLogs component displays CLI output in real-time via polling.
  *
  * Features:
- * - Real-time streaming of CLI output
+ * - Real-time polling of CLI output (500ms interval)
  * - Auto-scroll to bottom (toggleable)
  * - Line numbers
- * - Reconnection on error
- * - Graceful fallback when stream ends
+ * - Error handling
+ * - Graceful completion when run finishes
  */
 export function StreamingLogs({
   runId,
