@@ -80,10 +80,16 @@ class WorktreeService:
                 # Ignore fetch errors (might be offline)
                 pass
 
-            # Ensure base branch exists locally
+            # Ensure base branch exists locally and is up to date with origin
             try:
                 # Try to checkout the base branch first to ensure it exists
                 source_repo.git.checkout(base_branch)
+                # Reset local branch to origin to ensure we have the latest
+                try:
+                    source_repo.git.reset("--hard", f"origin/{base_branch}")
+                except git.GitCommandError:
+                    # origin/{base_branch} might not exist, continue with local
+                    pass
             except git.GitCommandError:
                 # If checkout fails, try to create from origin
                 try:

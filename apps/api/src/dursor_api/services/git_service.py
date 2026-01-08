@@ -110,9 +110,15 @@ class GitService:
                 # Ignore fetch errors (might be offline)
                 pass
 
-            # Ensure base branch exists locally
+            # Ensure base branch exists locally and is up to date with origin
             try:
                 source_repo.git.checkout(base_branch)
+                # Reset local branch to origin to ensure we have the latest
+                try:
+                    source_repo.git.reset("--hard", f"origin/{base_branch}")
+                except git.GitCommandError:
+                    # origin/{base_branch} might not exist, continue with local
+                    pass
             except git.GitCommandError:
                 try:
                     source_repo.git.checkout("-b", base_branch, f"origin/{base_branch}")
