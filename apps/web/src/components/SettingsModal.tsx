@@ -505,6 +505,7 @@ function DefaultsTab() {
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [branchPrefix, setBranchPrefix] = useState<string>('dursor');
   const [branches, setBranches] = useState<string[]>([]);
+  const [repoDefaultBranch, setRepoDefaultBranch] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const { success, error: toastError } = useToast();
@@ -529,12 +530,13 @@ function DefaultsTab() {
 
       // Get repository's default branch from repos list
       const selectedRepoInfo = repos?.find(r => r.owner === owner && r.name === repo);
-      const repoDefaultBranch = selectedRepoInfo?.default_branch;
+      const defaultBranchName = selectedRepoInfo?.default_branch || null;
+      setRepoDefaultBranch(defaultBranchName);
 
       // Sort branches: default branch first, then alphabetically
       const sortedBranches = [...branchList].sort((a, b) => {
-        if (a === repoDefaultBranch) return -1;
-        if (b === repoDefaultBranch) return 1;
+        if (a === defaultBranchName) return -1;
+        if (b === defaultBranchName) return 1;
         return a.localeCompare(b);
       });
 
@@ -548,6 +550,7 @@ function DefaultsTab() {
     } catch (err) {
       console.error('Failed to load branches:', err);
       setBranches([]);
+      setRepoDefaultBranch(null);
     } finally {
       setBranchesLoading(false);
     }
@@ -735,7 +738,7 @@ function DefaultsTab() {
             </option>
             {branches.map((branch) => (
               <option key={branch} value={branch}>
-                {branch}
+                {branch}{branch === repoDefaultBranch ? ' (default)' : ''}
               </option>
             ))}
           </select>
