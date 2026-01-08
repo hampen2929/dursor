@@ -4,8 +4,9 @@ Welcome to the dursor documentation. This guide will help you understand, develo
 
 ## Documentation Index
 
-### For Users
+### Getting Started
 
+- [Overview](./overview.md) - **Start here** - Comprehensive repository summary
 - [README](../README.md) - Project overview and quick start guide
 
 ### For Developers
@@ -19,6 +20,10 @@ Welcome to the dursor documentation. This guide will help you understand, develo
 
 - [Contributing Guide](../CONTRIBUTING.md) - How to contribute to the project
 - [CLAUDE.md](../CLAUDE.md) - Context file for Claude Code development
+
+### Design Documents
+
+- [UI/UX Improvement](./ui-ux-improvement.md) - UI/UX improvement proposals
 
 ## Quick Links
 
