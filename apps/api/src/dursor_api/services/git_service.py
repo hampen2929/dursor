@@ -8,6 +8,7 @@ pattern defined in docs/git_operation_design.md.
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -66,23 +67,44 @@ class GitService:
     # Worktree Management
     # ============================================================
 
-    def _generate_branch_name(self, run_id: str) -> str:
+    def _normalize_branch_prefix(self, prefix: str | None) -> str:
+        """Normalize a user-provided branch prefix.
+
+        Rules:
+        - If empty/None after trimming -> 'dursor'
+        - Trim whitespace
+        - Strip leading/trailing slashes
+        - Collapse whitespace runs into '-'
+        """
+        if prefix is None:
+            return "dursor"
+        cleaned = prefix.strip()
+        if not cleaned:
+            return "dursor"
+        cleaned = re.sub(r"\s+", "-", cleaned)
+        cleaned = cleaned.strip("/")
+        return cleaned or "dursor"
+
+    def _generate_branch_name(self, run_id: str, branch_prefix: str | None = None) -> str:
         """Generate a unique branch name for a run.
 
         Args:
             run_id: Run ID.
+            branch_prefix: Optional branch prefix (defaults to 'dursor').
 
         Returns:
-            Branch name in format: dursor/{short_id}
+            Branch name in format: <prefix>/{short_id}
         """
+        prefix = self._normalize_branch_prefix(branch_prefix)
         short_id = run_id[:8]
-        return f"dursor/{short_id}"
+        return f"{prefix}/{short_id}"
 
     async def create_worktree(
         self,
         repo: Repo,
         base_branch: str,
         run_id: str,
+        branch_prefix: str | None = None,
     ) -> WorktreeInfo:
         """Create a new git worktree for the run.
 
@@ -90,6 +112,7 @@ class GitService:
             repo: Repository object with workspace_path.
             base_branch: Base branch to create worktree from.
             run_id: Run ID for naming.
+            branch_prefix: Optional branch prefix for the new work branch.
 
         Returns:
             WorktreeInfo with path and branch information.
@@ -97,7 +120,7 @@ class GitService:
         Raises:
             git.GitCommandError: If git worktree creation fails.
         """
-        branch_name = self._generate_branch_name(run_id)
+        branch_name = self._generate_branch_name(run_id, branch_prefix=branch_prefix)
         worktree_path = self.worktrees_dir / f"run_{run_id}"
 
         def _create_worktree():
