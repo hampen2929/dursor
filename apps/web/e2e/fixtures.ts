@@ -56,10 +56,11 @@ export const mockResponses = {
 
 /**
  * Setup API mocks for a page
+ * Note: Frontend uses /api/* which is proxied to backend /v1/*
  */
 export async function setupApiMocks(page: Page) {
-  // Mock /v1/models
-  await page.route('**/v1/models', async (route) => {
+  // Mock /api/models
+  await page.route('**/api/models', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -67,8 +68,8 @@ export async function setupApiMocks(page: Page) {
     });
   });
 
-  // Mock /v1/tasks
-  await page.route('**/v1/tasks', async (route) => {
+  // Mock /api/tasks
+  await page.route('**/api/tasks', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
@@ -80,8 +81,8 @@ export async function setupApiMocks(page: Page) {
     }
   });
 
-  // Mock /v1/github/repos
-  await page.route('**/v1/github/repos', async (route) => {
+  // Mock /api/github/repos
+  await page.route('**/api/github/repos', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -89,8 +90,8 @@ export async function setupApiMocks(page: Page) {
     });
   });
 
-  // Mock /v1/preferences
-  await page.route('**/v1/preferences', async (route) => {
+  // Mock /api/preferences
+  await page.route('**/api/preferences', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -98,8 +99,8 @@ export async function setupApiMocks(page: Page) {
     });
   });
 
-  // Mock /v1/github/repos/:owner/:repo/branches
-  await page.route('**/v1/github/repos/*/branches', async (route) => {
+  // Mock /api/github/repos/:owner/:repo/branches
+  await page.route('**/api/github/repos/*/*/branches', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
