@@ -17,6 +17,8 @@ import {
   PhotoIcon,
   ArrowUpIcon,
   LockClosedIcon,
+  ExclamationTriangleIcon,
+  Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
 
 export default function HomePage() {
@@ -176,6 +178,39 @@ export default function HomePage() {
     !loading &&
     (isCLI || selectedModels.length > 0);
 
+  // Compute validation errors for display
+  const getValidationErrors = () => {
+    const errors: { message: string; action?: { label: string; href: string } }[] = [];
+
+    if (!instruction.trim()) {
+      errors.push({ message: '指示を入力してください' });
+    }
+    if (!repos) {
+      errors.push({
+        message: 'GitHub Appが未設定です',
+        action: { label: '設定する', href: '#settings-github' },
+      });
+    } else if (!selectedRepo) {
+      errors.push({ message: 'リポジトリを選択してください' });
+    }
+    if (selectedRepo && !selectedBranch) {
+      errors.push({ message: 'ブランチを選択してください' });
+    }
+    if (!isCLI && selectedModels.length === 0) {
+      if (!models || models.length === 0) {
+        errors.push({
+          message: 'モデルが未登録です',
+          action: { label: '設定する', href: '#settings-models' },
+        });
+      } else {
+        errors.push({ message: 'モデルを選択してください' });
+      }
+    }
+    return errors;
+  };
+
+  const validationErrors = getValidationErrors();
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-100px)]">
       <div className="w-full max-w-3xl px-4">
@@ -275,6 +310,35 @@ export default function HomePage() {
 
         {/* Keyboard hint */}
         <div className="mt-3 text-xs text-gray-600 text-center">{submitShortcut} to submit</div>
+
+        {/* Validation hints - show when there are issues preventing submission */}
+        {!canSubmit && !loading && validationErrors.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {validationErrors.map((err, idx) => (
+              <div
+                key={idx}
+                className="flex items-center justify-between gap-2 p-2 bg-amber-900/20 border border-amber-800/50 rounded-lg text-sm"
+              >
+                <div className="flex items-center gap-2 text-amber-400">
+                  <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0" />
+                  <span>{err.message}</span>
+                </div>
+                {err.action && (
+                  <button
+                    onClick={() => {
+                      // Trigger settings open via hash - will be handled by ClientLayout
+                      window.location.hash = err.action!.href.replace('#', '');
+                    }}
+                    className="flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors text-sm whitespace-nowrap"
+                  >
+                    <Cog6ToothIcon className="w-4 h-4" />
+                    {err.action.label}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Error message */}
         {error && (
