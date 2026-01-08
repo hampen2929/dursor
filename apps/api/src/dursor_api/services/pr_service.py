@@ -244,13 +244,26 @@ class PRService:
         # Generate title and description with AI
         title = await self._generate_title(diff, task, run)
         template = await self._load_pr_template(repo_obj)
-        description = await self._generate_description_for_new_pr(
-            diff=diff,
-            template=template,
-            task=task,
-            title=title,
-            run=run,
-        )
+        if template:
+            # Enforce repository pull_request_template adherence even if LLM is unavailable.
+            summary_text = (run.summary or title).strip()
+            changes_text = self._build_changes_section_from_diff(diff)
+            test_plan_text = self._default_test_plan_section()
+            description = self._render_pr_body_from_template(
+                template=template,
+                title=title,
+                description=summary_text,
+                changes=changes_text,
+                test_plan=test_plan_text,
+            )
+        else:
+            description = await self._generate_description_for_new_pr(
+                diff=diff,
+                template=None,
+                task=task,
+                title=title,
+                run=run,
+            )
 
         # Create PR via GitHub API
         pr_data = await self.github_service.create_pull_request(
@@ -643,13 +656,32 @@ class PRService:
         # Load pull_request_template
         template = await self._load_pr_template(repo_obj)
 
-        # Generate description with LLM
-        new_description = await self._generate_description(
-            diff=cumulative_diff,
-            template=template,
-            task=task,
-            pr=pr,
-        )
+        if template:
+            # Generate (or fallback) a summary, then inject into the repository template.
+            generated = await self._generate_description(
+                diff=cumulative_diff,
+                template=None,
+                task=task,
+                pr=pr,
+            )
+            summary_text = self._extract_summary_text(generated) or pr.title
+            changes_text = self._build_changes_section_from_diff(cumulative_diff)
+            test_plan_text = self._default_test_plan_section()
+            new_description = self._render_pr_body_from_template(
+                template=template,
+                title=pr.title,
+                description=summary_text,
+                changes=changes_text,
+                test_plan=test_plan_text,
+            )
+        else:
+            # Generate description with LLM (or fallback) in the default format.
+            new_description = await self._generate_description(
+                diff=cumulative_diff,
+                template=None,
+                task=task,
+                pr=pr,
+            )
 
         # Update PR via GitHub API
         await self.github_service.update_pull_request(
@@ -681,12 +713,30 @@ class PRService:
             workspace_path / ".github" / "PULL_REQUEST_TEMPLATE.md",
             workspace_path / "pull_request_template.md",
             workspace_path / "PULL_REQUEST_TEMPLATE.md",
+            workspace_path / "docs" / "pull_request_template.md",
+            workspace_path / "docs" / "PULL_REQUEST_TEMPLATE.md",
             workspace_path / ".github" / "PULL_REQUEST_TEMPLATE" / "default.md",
         ]
 
         for path in template_paths:
             if path.exists():
                 return path.read_text()
+
+        # Support multiple-template directories by picking default.md if present,
+        # otherwise the first *.md in the directory (stable order).
+        multi_template_dirs = [
+            workspace_path / ".github" / "PULL_REQUEST_TEMPLATE",
+            workspace_path / "PULL_REQUEST_TEMPLATE",
+        ]
+        for d in multi_template_dirs:
+            if not d.exists() or not d.is_dir():
+                continue
+            default_md = d / "default.md"
+            if default_md.exists():
+                return default_md.read_text()
+            md_files = sorted(p for p in d.iterdir() if p.is_file() and p.suffix.lower() == ".md")
+            if md_files:
+                return md_files[0].read_text()
 
         return None
 
@@ -722,12 +772,21 @@ class PRService:
         except Exception as e:
             logger.warning(f"PR base diagnostics failed: {e}")
 
-    def _render_pr_body_from_template(self, template: str, title: str, description: str) -> str:
+    def _render_pr_body_from_template(
+        self,
+        template: str,
+        title: str,
+        description: str,
+        *,
+        changes: str | None = None,
+        test_plan: str | None = None,
+    ) -> str:
         """Render PR body using pull_request_template.
 
         Strategy:
         - If the template has a 'Summary' (or 'Description') heading, replace the section body
           with the provided description.
+        - If the template has 'Changes' or 'Test Plan', replace those section bodies when provided.
         - Otherwise, prepend a Summary section and include the template below it.
         """
         tmpl = (template or "").replace("\r\n", "\n").strip()
@@ -736,33 +795,132 @@ class PRService:
         if not tmpl:
             return desc
 
-        if not desc:
-            # No description to inject; keep the template as-is.
-            return tmpl
+        body = tmpl
 
-        # Find an injection target heading.
-        # Matches e.g. "## Summary" / "# Summary" (case-insensitive).
+        if desc:
+            body, injected = self._replace_markdown_section(
+                body,
+                section_names=["summary", "description"],
+                new_body=desc,
+            )
+            if not injected:
+                # No obvious section; prepend a Summary and keep the template.
+                body = f"## Summary\n{desc}\n\n{body}".strip()
+
+        if changes:
+            body, _ = self._replace_markdown_section(
+                body,
+                section_names=["changes"],
+                new_body=changes,
+            )
+
+        if test_plan:
+            body, _ = self._replace_markdown_section(
+                body,
+                section_names=["test plan", "tests", "testing"],
+                new_body=test_plan,
+            )
+
+        return body.strip()
+
+    def _replace_markdown_section(
+        self,
+        markdown: str,
+        *,
+        section_names: list[str],
+        new_body: str,
+    ) -> tuple[str, bool]:
+        """Replace a markdown section body by heading name.
+
+        Matches headings like "# Summary" or "## Test Plan" (case-insensitive).
+        The replaced range is from the end of the matched heading line to the next
+        heading of level <= matched level (or EOF).
+        """
+        text = (markdown or "").replace("\r\n", "\n")
+        names_pat = "|".join(re.escape(n) for n in section_names)
         heading_re = re.compile(
-            r"^(#{1,6})\s+(summary|description)\s*$",
+            rf"^(#{1,6})\s+({names_pat})\s*$",
             re.IGNORECASE | re.MULTILINE,
         )
-        m = heading_re.search(tmpl)
+        m = heading_re.search(text)
         if not m:
-            # No obvious section; prepend a Summary and keep the template.
-            return f"## Summary\n{desc}\n\n{tmpl}"
+            return text, False
 
         level = len(m.group(1))
         start = m.end()
-
-        # Find the next heading with level <= current to determine section end.
         next_heading_re = re.compile(rf"^#{{1,{level}}}\s+\S.*$", re.MULTILINE)
-        m2 = next_heading_re.search(tmpl, pos=start)
-        end = m2.start() if m2 else len(tmpl)
+        m2 = next_heading_re.search(text, pos=start)
+        end = m2.start() if m2 else len(text)
 
-        before = tmpl[:start].rstrip()
-        after = tmpl[end:].lstrip()
-        injected = f"{before}\n\n{desc}\n\n{after}".strip()
-        return injected
+        before = text[:start].rstrip()
+        after = text[end:].lstrip()
+        replaced = f"{before}\n\n{new_body.strip()}\n\n{after}".strip()
+        return replaced, True
+
+    def _extract_summary_text(self, generated_markdown: str) -> str:
+        """Extract a summary-like snippet from generated markdown."""
+        text = (generated_markdown or "").replace("\r\n", "\n").strip()
+        if not text:
+            return ""
+
+        # Prefer an explicit Summary/Description section if present.
+        for name in ("summary", "description"):
+            extracted = self._extract_markdown_section(text, section_name=name)
+            if extracted:
+                return extracted.strip()
+
+        # Otherwise, take the first non-heading paragraph.
+        for block in re.split(r"\n{2,}", text):
+            b = block.strip()
+            if not b:
+                continue
+            if re.match(r"^#{1,6}\s+\S", b):
+                continue
+            return b
+        return ""
+
+    def _extract_markdown_section(self, markdown: str, *, section_name: str) -> str:
+        """Extract a markdown section body by heading name."""
+        text = (markdown or "").replace("\r\n", "\n")
+        heading_re = re.compile(
+            rf"^(#{1,6})\s+{re.escape(section_name)}\s*$",
+            re.IGNORECASE | re.MULTILINE,
+        )
+        m = heading_re.search(text)
+        if not m:
+            return ""
+        level = len(m.group(1))
+        start = m.end()
+        next_heading_re = re.compile(rf"^#{{1,{level}}}\s+\S.*$", re.MULTILINE)
+        m2 = next_heading_re.search(text, pos=start)
+        end = m2.start() if m2 else len(text)
+        return text[start:end].strip()
+
+    def _build_changes_section_from_diff(self, diff: str) -> str:
+        """Build a markdown bullet list for a Changes section from a unified diff."""
+        added_lines = len(re.findall(r"^\+[^+]", diff or "", re.MULTILINE))
+        removed_lines = len(re.findall(r"^-[^-]", diff or "", re.MULTILINE))
+        files = sorted(set(re.findall(r"^\+\+\+ b/(.+)$", diff or "", re.MULTILINE)))
+
+        lines: list[str] = [
+            f"- Modified {len(files)} file(s)",
+            f"- +{added_lines} -{removed_lines} lines",
+        ]
+        if files:
+            lines.append("- Files:")
+            lines.extend([f"  - {f}" for f in files[:20]])
+            if len(files) > 20:
+                lines.append("  - ...")
+        return "\n".join(lines).strip()
+
+    def _default_test_plan_section(self) -> str:
+        """Default markdown content for a Test Plan section (if present in template)."""
+        return "\n".join(
+            [
+                "- [ ] Manual testing",
+                "- [ ] Unit tests",
+            ]
+        ).strip()
 
     async def _generate_description(
         self,
