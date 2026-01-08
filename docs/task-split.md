@@ -2,7 +2,7 @@
 
 ## 概要
 
-ヒアリング時に得られた文章（要件や課題の説明）を貼り付けて、LLMを使って機能追加やバグ修正のタスクに分解し、一括登録する機能を追加します。
+ヒアリング時に得られた文章（要件や課題の説明）を貼り付けて、**Agent tool（Claude Code / Codex CLI / Gemini CLI）を使ってコードベースを理解した上で**、機能追加やバグ修正のタスクに分解し、一括登録する機能を追加します。
 
 ## ユースケース
 
@@ -10,11 +10,22 @@
 1. ユーザーがクライアントからヒアリングを実施
 2. ヒアリング内容をテキストとして記録
 3. dursor にヒアリング文章を貼り付け
-4. LLM がタスクに分解（機能追加/バグ修正/リファクタリング等）
+4. Agent tool がコードベースを読み込み、既存実装との整合性を考慮してタスクに分解
 5. 分解されたタスクを確認・編集
 6. 選択したタスクを一括登録
 7. 個別のタスクを選択して実行（既存機能）
 ```
+
+## Agent tool を使う理由
+
+単純な LLM API 呼び出しではなく Agent tool を使用する理由:
+
+1. **コードベースの理解**: Agent は実際のコードを読んで既存実装を把握できる
+2. **整合性の確保**: 既存のアーキテクチャ、命名規則、パターンに沿ったタスク分解
+3. **実現可能性の判断**: コードを見て、タスクの難易度や依存関係を正確に評価
+4. **具体的な実装方針**: どのファイルを変更すべきかなど、具体的な指針を含められる
+
+---
 
 ## UI 配置案
 
@@ -113,24 +124,38 @@
 │  │ ・管理者のみアクセスできるページを作りたい       │  │
 │  └────────────────────────────────────────────────────┘  │
 │                                                          │
-│  モデル: [Claude 3.5 Sonnet ▼]  ← タスク分解用          │
+│  Agent: [◉ Claude Code] [○ Codex CLI] [○ Gemini CLI]    │
+│         ↑ コードベースを読んでタスク分解                 │
 │                                                          │
 │  [分解する]                                              │
+│                                                          │
+├──────────────────────────────────────────────────────────┤
+│  📋 分解中...                                            │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ > Analyzing codebase structure...                  │  │
+│  │ > Found 45 TypeScript files                        │  │
+│  │ > Checking existing authentication implementation..│  │
+│  │ > Analyzing user management module...              │  │
+│  └────────────────────────────────────────────────────┘  │
 │                                                          │
 ├──────────────────────────────────────────────────────────┤
 │  分解結果 (3件)                                          │
 │                                                          │
 │  ☑ 🐛 ログイン画面のエラーメッセージ表示修正            │
 │      バグ修正 | 推定: 小                                 │
-│      詳細: パスワード認証失敗時にエラーメッセージが...   │
+│      対象: src/components/LoginForm.tsx                  │
+│      詳細: handleSubmit関数でcatch時のsetError呼び出し   │
+│           が欠落している                                │
 │                                                          │
 │  ☑ ✨ ユーザー一覧に検索機能を追加                       │
 │      機能追加 | 推定: 中                                 │
-│      詳細: ユーザー名・メールアドレスで絞り込み...       │
+│      対象: src/pages/users/index.tsx, src/lib/api.ts    │
+│      詳細: 既存のuseSWRパターンに合わせてフィルタ機能... │
 │                                                          │
 │  ☑ 🔒 管理者専用ページのアクセス制御実装                 │
 │      機能追加 | 推定: 大                                 │
-│      詳細: RBAC（Role-Based Access Control）を...        │
+│      対象: src/middleware.ts, src/lib/auth.ts           │
+│      詳細: 既存のNextAuth設定を拡張してロールベース...   │
 │                                                          │
 ├──────────────────────────────────────────────────────────┤
 │  [選択したタスクを登録 (3件)]              [キャンセル]  │
@@ -140,7 +165,7 @@
 ### 状態遷移
 
 ```
-入力中 → 分解中(ローディング) → 結果表示 → タスク選択 → 登録中 → 完了
+入力中 → 分解中(Agent実行 + ログストリーミング) → 結果表示 → タスク選択 → 登録中 → 完了
 ```
 
 ---
@@ -151,14 +176,14 @@
 
 #### `POST /v1/breakdown`
 
-ヒアリング文章をタスクに分解する。
+Agent tool を使ってヒアリング文章をタスクに分解する。
 
 **Request:**
 
 ```json
 {
   "content": "ヒアリング文章...",
-  "model_id": "model-profile-id",
+  "executor_type": "claude_code",
   "repo_id": "repo-id",
   "context": {
     "language": "ja",
@@ -171,12 +196,15 @@
 
 ```json
 {
+  "breakdown_id": "breakdown-123",
   "tasks": [
     {
       "title": "ログイン画面のエラーメッセージ表示修正",
       "description": "パスワード認証失敗時にエラーメッセージが表示されない問題を修正する",
       "type": "bug_fix",
       "estimated_size": "small",
+      "target_files": ["src/components/LoginForm.tsx"],
+      "implementation_hint": "handleSubmit関数のcatchブロックでsetError()を呼び出す",
       "tags": ["auth", "ui"]
     },
     {
@@ -184,11 +212,35 @@
       "description": "ユーザー名・メールアドレスでフィルタリングできる検索機能を実装",
       "type": "feature",
       "estimated_size": "medium",
+      "target_files": ["src/pages/users/index.tsx", "src/lib/api.ts"],
+      "implementation_hint": "既存のuseSWRパターンを使用し、クエリパラメータでフィルタリング",
       "tags": ["user-management", "search"]
     }
   ],
-  "summary": "3件のタスクに分解しました",
-  "original_content": "ヒアリング文章..."
+  "summary": "コードベースを分析し、3件のタスクに分解しました",
+  "original_content": "ヒアリング文章...",
+  "codebase_analysis": {
+    "files_analyzed": 45,
+    "relevant_modules": ["auth", "user-management"],
+    "tech_stack": ["Next.js", "TypeScript", "Tailwind CSS"]
+  }
+}
+```
+
+#### `GET /v1/breakdown/{breakdown_id}/logs`
+
+タスク分解のログを取得（ストリーミング用）。
+
+**Response:**
+
+```json
+{
+  "logs": [
+    { "line_number": 1, "content": "Analyzing codebase structure...", "timestamp": 1234567890 },
+    { "line_number": 2, "content": "Found 45 TypeScript files", "timestamp": 1234567891 }
+  ],
+  "is_complete": false,
+  "total_lines": 2
 }
 ```
 
@@ -237,9 +289,57 @@ apps/api/src/dursor_api/services/breakdown_service.py
 ```
 
 **責務**:
-- ヒアリング文章の受け取り
-- LLM にプロンプトを送信してタスク分解
+- ヒアリング文章と分解指示を受け取る
+- 適切な Executor（ClaudeCodeExecutor / CodexExecutor / GeminiExecutor）を選択
+- Executor を実行してタスク分解を実行
 - 結果のパースとバリデーション
+
+```python
+class BreakdownService:
+    def __init__(
+        self,
+        claude_executor: ClaudeCodeExecutor,
+        codex_executor: CodexExecutor,
+        gemini_executor: GeminiExecutor,
+        repo_dao: RepoDAO,
+        worktree_service: WorktreeService,
+        output_manager: OutputManager,
+    ):
+        self.executors = {
+            ExecutorType.CLAUDE_CODE: claude_executor,
+            ExecutorType.CODEX_CLI: codex_executor,
+            ExecutorType.GEMINI_CLI: gemini_executor,
+        }
+        # ...
+
+    async def breakdown(
+        self,
+        request: TaskBreakdownRequest,
+    ) -> TaskBreakdownResponse:
+        """ヒアリング文章をタスクに分解する。
+        
+        1. リポジトリのワークツリーを準備
+        2. 分解用プロンプトを構築
+        3. 選択されたExecutorで実行
+        4. 結果をパースしてタスクリストを返す
+        """
+        # Worktree準備
+        worktree = await self.worktree_service.create(repo_id)
+        
+        # 分解用プロンプト構築
+        instruction = self._build_breakdown_instruction(request.content)
+        
+        # Executor実行
+        executor = self.executors[request.executor_type]
+        result = await executor.execute(
+            worktree_path=worktree.path,
+            instruction=instruction,
+            on_output=lambda line: self.output_manager.add_line(breakdown_id, line),
+        )
+        
+        # 結果パース
+        return self._parse_breakdown_result(result)
+```
 
 ### 2. 新しいルート: `routes/breakdown.py`
 
@@ -248,7 +348,8 @@ apps/api/src/dursor_api/routes/breakdown.py
 ```
 
 **エンドポイント**:
-- `POST /v1/breakdown` - タスク分解
+- `POST /v1/breakdown` - タスク分解実行
+- `GET /v1/breakdown/{breakdown_id}/logs` - ログ取得
 - `POST /v1/tasks/bulk` - 一括登録（または `routes/tasks.py` に追加）
 
 ### 3. ドメインモデル追加
@@ -259,7 +360,10 @@ apps/api/src/dursor_api/routes/breakdown.py
 class TaskBreakdownRequest(BaseModel):
     """タスク分解リクエスト"""
     content: str = Field(..., description="ヒアリング文章")
-    model_id: str = Field(..., description="分解に使用するモデルID")
+    executor_type: ExecutorType = Field(
+        default=ExecutorType.CLAUDE_CODE,
+        description="分解に使用するAgent tool"
+    )
     repo_id: str = Field(..., description="対象リポジトリID")
     context: dict[str, Any] | None = None
 
@@ -267,15 +371,25 @@ class BrokenDownTask(BaseModel):
     """分解されたタスク"""
     title: str
     description: str
-    type: str  # "feature", "bug_fix", "refactoring", "docs", etc.
+    type: str  # "feature", "bug_fix", "refactoring", "docs", "test"
     estimated_size: str  # "small", "medium", "large"
+    target_files: list[str] = []  # 変更対象ファイル
+    implementation_hint: str | None = None  # 実装のヒント
     tags: list[str] = []
+
+class CodebaseAnalysis(BaseModel):
+    """コードベース分析結果"""
+    files_analyzed: int
+    relevant_modules: list[str]
+    tech_stack: list[str]
 
 class TaskBreakdownResponse(BaseModel):
     """タスク分解レスポンス"""
+    breakdown_id: str
     tasks: list[BrokenDownTask]
     summary: str
     original_content: str
+    codebase_analysis: CodebaseAnalysis | None = None
 
 class TaskBulkCreate(BaseModel):
     """タスク一括作成リクエスト"""
@@ -290,32 +404,56 @@ class TaskBulkCreated(BaseModel):
 
 ### 4. プロンプト設計
 
+Agent tool に渡すプロンプトは、コードベースを読んでタスク分解するよう指示します。
+
 ```python
-BREAKDOWN_SYSTEM_PROMPT = """
+BREAKDOWN_INSTRUCTION_TEMPLATE = """
 あなたはソフトウェア開発のタスク分解の専門家です。
-ヒアリング内容から具体的な開発タスクを抽出してください。
+以下のヒアリング内容を、具体的な開発タスクに分解してください。
+
+## 重要: コードベースの分析
+1. まず、このリポジトリのコードベースを確認してください
+2. 既存の実装パターン、アーキテクチャ、命名規則を把握してください
+3. 各タスクが既存のコードとどう関連するか具体的に示してください
+
+## ヒアリング内容
+{content}
 
 ## 出力形式
-以下のJSON形式で出力してください:
+以下のJSON形式で `.dursor-breakdown.json` ファイルに出力してください:
 
-{
+```json
+{{
+  "codebase_analysis": {{
+    "files_analyzed": <分析したファイル数>,
+    "relevant_modules": ["関連するモジュール名"],
+    "tech_stack": ["使用技術"]
+  }},
   "tasks": [
-    {
+    {{
       "title": "簡潔なタスクタイトル（50文字以内）",
       "description": "タスクの詳細説明。実装方針を含む",
       "type": "feature | bug_fix | refactoring | docs | test",
       "estimated_size": "small | medium | large",
+      "target_files": ["変更対象のファイルパス"],
+      "implementation_hint": "具体的な実装方法のヒント（既存コードを参照）",
       "tags": ["関連するタグ"]
-    }
+    }}
   ]
-}
+}}
+```
 
 ## ルール
-1. 各タスクは独立して実行可能な単位にする
-2. タスクは具体的で実装可能な内容にする
-3. 曖昧な要件は確認事項として明記する
-4. バグ修正と機能追加は分けて記載する
-5. 依存関係がある場合は description に記載する
+1. **必ずコードを読んでから**タスクを作成すること
+2. target_files は実際に存在するファイルパスを指定
+3. implementation_hint は既存のコードパターンを参照して具体的に
+4. 各タスクは独立して実行可能な単位にする
+5. バグ修正と機能追加は分けて記載する
+6. 依存関係がある場合は description に記載する
+7. 推定サイズは以下を目安に:
+   - small: 1-2ファイルの変更、数時間で完了
+   - medium: 3-5ファイルの変更、1日程度
+   - large: 複数モジュールにまたがる変更、数日以上
 """
 ```
 
@@ -329,7 +467,8 @@ BREAKDOWN_SYSTEM_PROMPT = """
 apps/web/src/components/
 ├── BreakdownModal.tsx        # メインモーダル
 ├── BreakdownTaskCard.tsx     # 分解されたタスクカード
-└── BreakdownTaskList.tsx     # タスクリスト
+├── BreakdownTaskList.tsx     # タスクリスト
+└── BreakdownLogs.tsx         # ログ表示（StreamingLogsを参考）
 ```
 
 ### 2. API クライアント追加
@@ -343,6 +482,13 @@ export const breakdownApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  getLogs: (breakdownId: string, fromLine: number = 0) =>
+    fetchApi<{
+      logs: OutputLine[];
+      is_complete: boolean;
+      total_lines: number;
+    }>(`/breakdown/${breakdownId}/logs?from_line=${fromLine}`),
 };
 
 // tasksApi に追加
@@ -367,7 +513,7 @@ export type EstimatedSize = 'small' | 'medium' | 'large';
 
 export interface TaskBreakdownRequest {
   content: string;
-  model_id: string;
+  executor_type: ExecutorType;  // 'claude_code' | 'codex_cli' | 'gemini_cli'
   repo_id: string;
   context?: Record<string, unknown>;
 }
@@ -377,13 +523,23 @@ export interface BrokenDownTask {
   description: string;
   type: TaskType;
   estimated_size: EstimatedSize;
+  target_files: string[];
+  implementation_hint: string | null;
   tags: string[];
 }
 
+export interface CodebaseAnalysis {
+  files_analyzed: number;
+  relevant_modules: string[];
+  tech_stack: string[];
+}
+
 export interface TaskBreakdownResponse {
+  breakdown_id: string;
   tasks: BrokenDownTask[];
   summary: string;
   original_content: string;
+  codebase_analysis: CodebaseAnalysis | null;
 }
 
 export interface TaskBulkCreate {
@@ -437,35 +593,65 @@ const [breakdownOpen, setBreakdownOpen] = useState(false);
 />
 ```
 
+### 6. Agent セレクター
+
+既存の `ExecutorSelector` コンポーネントを参考に、CLI Executor のみ選択できるセレクターを作成:
+
+```tsx
+// BreakdownModal.tsx 内
+<div className="flex items-center gap-4">
+  <span className="text-sm text-gray-400">Agent:</span>
+  {(['claude_code', 'codex_cli', 'gemini_cli'] as const).map((type) => (
+    <label key={type} className="flex items-center gap-2 cursor-pointer">
+      <input
+        type="radio"
+        name="executor"
+        value={type}
+        checked={executorType === type}
+        onChange={() => setExecutorType(type)}
+        className="text-purple-500"
+      />
+      <span className="text-sm text-gray-200">
+        {type === 'claude_code' && 'Claude Code'}
+        {type === 'codex_cli' && 'Codex CLI'}
+        {type === 'gemini_cli' && 'Gemini CLI'}
+      </span>
+    </label>
+  ))}
+</div>
+```
+
 ---
 
 ## 実装順序
 
 ### Phase 1: バックエンド基盤
 
-1. [ ] ドメインモデル追加（`domain/models.py`）
+1. [ ] ドメインモデル追加（`domain/models.py`, `domain/enums.py`）
 2. [ ] `BreakdownService` 実装
 3. [ ] `routes/breakdown.py` 実装
-4. [ ] テスト追加
+4. [ ] 結果パース用ユーティリティ実装
+5. [ ] テスト追加
 
 ### Phase 2: フロントエンド基盤
 
-5. [ ] 型定義追加（`types.ts`）
-6. [ ] API クライアント追加（`lib/api.ts`）
-7. [ ] `BreakdownModal` コンポーネント作成
-8. [ ] `BreakdownTaskCard` コンポーネント作成
+6. [ ] 型定義追加（`types.ts`）
+7. [ ] API クライアント追加（`lib/api.ts`）
+8. [ ] `BreakdownModal` コンポーネント作成
+9. [ ] `BreakdownTaskCard` コンポーネント作成
+10. [ ] `BreakdownLogs` コンポーネント作成（既存の `StreamingLogs` を参考）
 
 ### Phase 3: UI 統合
 
-9. [ ] `Sidebar.tsx` にボタン追加
-10. [ ] `ClientLayout.tsx` にモーダル統合
-11. [ ] E2E テスト追加
+11. [ ] `Sidebar.tsx` にボタン追加
+12. [ ] `ClientLayout.tsx` にモーダル統合
+13. [ ] E2E テスト追加
 
 ### Phase 4: 改善
 
-12. [ ] タスク編集機能（分解結果の修正）
-13. [ ] プロンプトの調整・改善
-14. [ ] エラーハンドリング強化
+14. [ ] タスク編集機能（分解結果の修正）
+15. [ ] プロンプトの調整・改善
+16. [ ] エラーハンドリング強化
 
 ---
 
@@ -473,11 +659,11 @@ const [breakdownOpen, setBreakdownOpen] = useState(false);
 
 | Phase | 内容 | 見積もり |
 |-------|------|----------|
-| Phase 1 | バックエンド基盤 | 4-6時間 |
-| Phase 2 | フロントエンド基盤 | 4-6時間 |
+| Phase 1 | バックエンド基盤 | 6-8時間 |
+| Phase 2 | フロントエンド基盤 | 5-7時間 |
 | Phase 3 | UI 統合 | 2-3時間 |
-| Phase 4 | 改善 | 2-4時間 |
-| **合計** | | **12-19時間** |
+| Phase 4 | 改善 | 3-5時間 |
+| **合計** | | **16-23時間** |
 
 ---
 
@@ -486,21 +672,27 @@ const [breakdownOpen, setBreakdownOpen] = useState(false);
 ### セキュリティ
 
 - ヒアリング文章に機密情報が含まれる可能性があるため、ログに残さない
-- API キーを使った LLM 呼び出しは既存の暗号化済みキーを使用
+- Agent tool はワークツリー内でのみ動作し、外部へのアクセスは制限
 
 ### UX
 
-- 分解処理中のローディング表示
+- Agent 実行中のログストリーミング表示（既存の Run 実行時と同様）
 - 分解結果の編集機能（タイトル・説明の微調整）
 - 分解失敗時の適切なエラーメッセージ
+- Agent 選択時にどの Agent がインストール済みかを表示
 
 ### パフォーマンス
 
-- 長文入力時の LLM 呼び出しタイムアウト設定
-- 分解結果のキャッシュ（オプショナル）
+- Agent 実行のタイムアウト設定（既存の Executor と同様）
+- 大規模コードベースでの分析時間の目安を表示
 
 ### 拡張性
 
 - 複数言語対応（日本語/英語のプロンプト切り替え）
 - カスタムプロンプトのサポート（将来）
 - タスクテンプレート機能（将来）
+
+### Agent tool の可用性
+
+- CLI がインストールされていない場合のエラーハンドリング
+- 各 Agent の認証状態チェック（Claude Code は `~/.claude` の認証情報を使用）
