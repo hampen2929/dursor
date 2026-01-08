@@ -8,6 +8,7 @@ pattern defined in docs/git_operation_design.md.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -18,6 +19,8 @@ import git
 
 from dursor_api.config import settings
 from dursor_api.domain.models import Repo
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -126,28 +129,45 @@ class GitService:
         def _create_worktree():
             source_repo = git.Repo(repo.workspace_path)
 
-            # Fetch to ensure we have latest refs
+            default_branch = repo.default_branch or "main"
+
+            # Fetch to ensure we have latest refs (best-effort)
             try:
-                source_repo.remotes.origin.fetch()
+                source_repo.git.fetch("origin", "--prune")
             except Exception:
                 # Ignore fetch errors (might be offline)
                 pass
 
-            # Ensure base branch exists locally
+            # Ensure the *source* repo is at the latest state of the default branch
+            # before creating a worktree.
             try:
-                source_repo.git.checkout(base_branch)
+                # Verify the remote default branch exists
+                source_repo.git.show_ref("--verify", f"refs/remotes/origin/{default_branch}")
+                # Force local default branch to match origin/default (latest)
+                source_repo.git.checkout("-B", default_branch, f"origin/{default_branch}")
             except git.GitCommandError:
+                # Fallback: try best-effort checkout without forcing reset
                 try:
-                    source_repo.git.checkout("-b", base_branch, f"origin/{base_branch}")
+                    source_repo.git.checkout(default_branch)
                 except git.GitCommandError:
                     pass
+
+            # Choose a base ref for the worktree.
+            # Prefer remote refs to ensure we branch from the latest remote state.
+            base_ref = base_branch
+            try:
+                source_repo.git.show_ref("--verify", f"refs/remotes/origin/{base_branch}")
+                base_ref = f"origin/{base_branch}"
+            except git.GitCommandError:
+                # If base_branch isn't a remote branch, keep it as-is (could be SHA/tag).
+                base_ref = base_branch
 
             # Create worktree with new branch
             source_repo.git.worktree(
                 "add",
                 "-b", branch_name,
                 str(worktree_path),
-                base_branch,
+                base_ref,
             )
 
             return WorktreeInfo(
@@ -159,6 +179,102 @@ class GitService:
 
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _create_worktree)
+
+    async def is_ancestor(self, repo_path: Path, ancestor: str, descendant: str = "HEAD") -> bool:
+        """Check whether `ancestor` is an ancestor of `descendant`.
+
+        This is a thin wrapper around `git merge-base --is-ancestor`.
+
+        Args:
+            repo_path: Path to a git repo (workspace or worktree).
+            ancestor: Git ref expected to be an ancestor (e.g., 'origin/main').
+            descendant: Git ref expected to include the ancestor (default: 'HEAD').
+
+        Returns:
+            True if ancestor is an ancestor of descendant, False otherwise.
+        """
+
+        def _is_ancestor() -> bool:
+            repo = git.Repo(repo_path)
+
+            # Best-effort fetch to update origin refs (works for worktrees too).
+            try:
+                repo.git.fetch("origin", "--prune")
+            except Exception:
+                pass
+
+            # If the ancestor ref doesn't exist, we cannot reliably decide.
+            try:
+                repo.git.show_ref("--verify", f"refs/{ancestor}")
+            except git.GitCommandError:
+                try:
+                    repo.git.show_ref("--verify", f"refs/remotes/{ancestor}")
+                except git.GitCommandError:
+                    return True
+
+            try:
+                repo.git.merge_base("--is-ancestor", ancestor, descendant)
+                return True
+            except git.GitCommandError:
+                return False
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _is_ancestor)
+
+    async def get_ref_sha(self, repo_path: Path, ref: str) -> str | None:
+        """Resolve a git ref to a SHA (best-effort).
+
+        Args:
+            repo_path: Path to a git repo (workspace or worktree).
+            ref: Git ref to resolve (e.g., 'origin/main', 'HEAD', 'refs/remotes/origin/main').
+
+        Returns:
+            SHA string if resolvable, otherwise None.
+        """
+
+        def _get_ref_sha() -> str | None:
+            repo = git.Repo(repo_path)
+            try:
+                # Best-effort fetch to keep origin refs fresh.
+                repo.git.fetch("origin", "--prune")
+            except Exception as e:
+                logger.debug(f"git fetch failed while resolving ref: {e}")
+
+            try:
+                return repo.git.rev_parse(ref).strip()
+            except git.GitCommandError:
+                return None
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _get_ref_sha)
+
+    async def get_merge_base(self, repo_path: Path, ref1: str, ref2: str) -> str | None:
+        """Get merge-base SHA between two refs (best-effort).
+
+        Args:
+            repo_path: Path to a git repo (workspace or worktree).
+            ref1: First ref (e.g., 'origin/main').
+            ref2: Second ref (e.g., 'origin/feature' or 'HEAD').
+
+        Returns:
+            Merge-base SHA if computable, otherwise None.
+        """
+
+        def _get_merge_base() -> str | None:
+            repo = git.Repo(repo_path)
+            try:
+                repo.git.fetch("origin", "--prune")
+            except Exception as e:
+                logger.debug(f"git fetch failed while computing merge-base: {e}")
+
+            try:
+                mb = repo.git.merge_base(ref1, ref2).strip()
+                return mb.splitlines()[0].strip() if mb else None
+            except git.GitCommandError:
+                return None
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _get_merge_base)
 
     async def cleanup_worktree(
         self,
@@ -562,7 +678,7 @@ class GitService:
 
             if auth_url:
                 # Use authenticated URL temporarily
-                with repo.config_writer() as config:
+                with repo.config_writer():
                     # Save original URL
                     try:
                         original_url = repo.remotes.origin.url
