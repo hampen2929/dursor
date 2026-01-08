@@ -185,6 +185,11 @@ export interface PRUpdated {
   latest_commit: string;
 }
 
+export interface PRTemplate {
+  template: string | null;
+  template_path: string | null;
+}
+
 // GitHub App Configuration
 export interface GitHubAppConfig {
   app_id: string | null;

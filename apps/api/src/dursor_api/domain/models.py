@@ -386,6 +386,13 @@ class PRUpdated(BaseModel):
     latest_commit: str
 
 
+class PRTemplate(BaseModel):
+    """Response for PR template."""
+
+    template: str | None = None
+    template_path: str | None = None
+
+
 # ============================================================
 # GitHub App Configuration
 # ============================================================

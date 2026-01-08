@@ -639,6 +639,52 @@ class PRService:
 
         return await self.pr_dao.get(pr_id)
 
+    async def get_pr_template(self, task_id: str) -> tuple[str | None, str | None]:
+        """Get PR template for a task's repository.
+
+        Args:
+            task_id: Task ID.
+
+        Returns:
+            Tuple of (template_content, template_path) or (None, None) if not found.
+        """
+        task = await self.task_dao.get(task_id)
+        if not task:
+            raise ValueError(f"Task not found: {task_id}")
+
+        repo_obj = await self.repo_service.get(task.repo_id)
+        if not repo_obj:
+            raise ValueError(f"Repo not found: {task.repo_id}")
+
+        return self._find_pr_template(repo_obj)
+
+    def _find_pr_template(self, repo: Repo) -> tuple[str | None, str | None]:
+        """Find and load repository's pull_request_template.
+
+        Args:
+            repo: Repository object.
+
+        Returns:
+            Tuple of (template_content, relative_path) or (None, None) if not found.
+        """
+        workspace_path = Path(repo.workspace_path)
+
+        # Template candidate paths (in priority order)
+        template_candidates = [
+            ".github/pull_request_template.md",
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            "pull_request_template.md",
+            "PULL_REQUEST_TEMPLATE.md",
+            ".github/PULL_REQUEST_TEMPLATE/default.md",
+        ]
+
+        for relative_path in template_candidates:
+            path = workspace_path / relative_path
+            if path.exists():
+                return path.read_text(), relative_path
+
+        return None, None
+
     async def _load_pr_template(self, repo: Repo) -> str | None:
         """Load repository's pull_request_template.
 
@@ -648,22 +694,8 @@ class PRService:
         Returns:
             Template content or None if not found.
         """
-        workspace_path = Path(repo.workspace_path)
-
-        # Template candidate paths (in priority order)
-        template_paths = [
-            workspace_path / ".github" / "pull_request_template.md",
-            workspace_path / ".github" / "PULL_REQUEST_TEMPLATE.md",
-            workspace_path / "pull_request_template.md",
-            workspace_path / "PULL_REQUEST_TEMPLATE.md",
-            workspace_path / ".github" / "PULL_REQUEST_TEMPLATE" / "default.md",
-        ]
-
-        for path in template_paths:
-            if path.exists():
-                return path.read_text()
-
-        return None
+        content, _ = self._find_pr_template(repo)
+        return content
 
     async def _generate_description(
         self,

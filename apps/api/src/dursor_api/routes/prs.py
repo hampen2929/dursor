@@ -3,7 +3,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from dursor_api.dependencies import get_pr_service
-from dursor_api.domain.models import PR, PRCreate, PRCreateAuto, PRCreated, PRUpdate, PRUpdated
+from dursor_api.domain.models import (
+    PR,
+    PRCreate,
+    PRCreateAuto,
+    PRCreated,
+    PRTemplate,
+    PRUpdate,
+    PRUpdated,
+)
 from dursor_api.services.pr_service import GitHubPermissionError, PRService
 
 router = APIRouter(tags=["prs"])
@@ -115,5 +123,27 @@ async def regenerate_pr_description(
         return await pr_service.regenerate_description(task_id, pr_id)
     except GitHubPermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/tasks/{task_id}/prs/template", response_model=PRTemplate)
+async def get_pr_template(
+    task_id: str,
+    pr_service: PRService = Depends(get_pr_service),
+) -> PRTemplate:
+    """Get pull request template for a task's repository.
+
+    Returns the pull_request_template.md content if found in the repository.
+    Searches in standard locations:
+    - .github/pull_request_template.md
+    - .github/PULL_REQUEST_TEMPLATE.md
+    - pull_request_template.md
+    - PULL_REQUEST_TEMPLATE.md
+    - .github/PULL_REQUEST_TEMPLATE/default.md
+    """
+    try:
+        template, template_path = await pr_service.get_pr_template(task_id)
+        return PRTemplate(template=template, template_path=template_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

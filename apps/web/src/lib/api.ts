@@ -21,6 +21,7 @@ import type {
   PRCreate,
   PRCreateAuto,
   PRCreated,
+  PRTemplate,
   PRUpdate,
   PRUpdated,
   GitHubAppConfig,
@@ -259,6 +260,9 @@ export const prsApi = {
     fetchApi<PR>(`/tasks/${taskId}/prs/${prId}/regenerate-description`, {
       method: 'POST',
     }),
+
+  getTemplate: (taskId: string) =>
+    fetchApi<PRTemplate>(`/tasks/${taskId}/prs/template`),
 };
 
 // Preferences
