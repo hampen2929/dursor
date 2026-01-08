@@ -77,6 +77,7 @@ class GeminiExecutor:
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,  # Prevent interactive input waiting
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(worktree_path),

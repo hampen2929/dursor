@@ -230,6 +230,36 @@ class GitService:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _list)
 
+    async def is_valid_worktree(self, worktree_path: Path) -> bool:
+        """Check if a path is a valid git worktree.
+
+        This verifies that:
+        1. The directory exists
+        2. It's a valid git repository (worktree)
+        3. Git commands can be executed in it
+
+        Args:
+            worktree_path: Path to check.
+
+        Returns:
+            True if valid, False otherwise.
+        """
+        def _check():
+            if not worktree_path.exists():
+                return False
+
+            try:
+                # Try to open as a git repo - this will fail if .git reference is broken
+                repo = git.Repo(worktree_path)
+                # Try a simple git command to verify it works
+                repo.git.status()
+                return True
+            except (git.InvalidGitRepositoryError, git.GitCommandError):
+                return False
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _check)
+
     # ============================================================
     # Change Management
     # ============================================================

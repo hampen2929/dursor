@@ -271,9 +271,9 @@ class RunService:
         worktree_info = None
 
         if existing_run and existing_run.worktree_path:
-            # Verify worktree still exists
+            # Verify worktree is still valid (exists and is a valid git repo)
             worktree_path = Path(existing_run.worktree_path)
-            if worktree_path.exists():
+            if await self.git_service.is_valid_worktree(worktree_path):
                 # Reuse existing worktree
                 worktree_info = WorktreeInfo(
                     path=worktree_path,
@@ -281,6 +281,9 @@ class RunService:
                     base_branch=existing_run.base_ref or base_ref,
                     created_at=existing_run.created_at,
                 )
+                logger.info(f"Reusing existing worktree: {worktree_path}")
+            else:
+                logger.warning(f"Worktree invalid or broken, will create new: {worktree_path}")
 
         # Create the run record
         run = await self.run_dao.create(

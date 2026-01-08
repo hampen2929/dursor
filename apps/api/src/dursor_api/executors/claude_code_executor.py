@@ -101,31 +101,54 @@ class ClaudeCodeExecutor:
         logger.info(f"Instruction length: {len(instruction)} chars")
 
         try:
+            logger.info("Creating subprocess...")
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,  # Prevent interactive input waiting
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(worktree_path),
                 env=env,
             )
-            logger.info(f"Process started with PID: {process.pid}")
+            logger.info(f"Process created successfully with PID: {process.pid}")
 
             # Stream output from CLI
             async def read_output():
                 line_count = 0
+                logger.info("Starting to read output lines...")
                 while True:
-                    line = await process.stdout.readline()
+                    # Add timeout per line to detect hanging
+                    try:
+                        line = await asyncio.wait_for(
+                            process.stdout.readline(),
+                            timeout=300.0  # 5 min timeout per line
+                        )
+                    except TimeoutError:
+                        logger.warning(f"No output for 5 minutes, checking if process is alive...")
+                        if process.returncode is None:
+                            logger.warning(f"Process still running (PID: {process.pid}), continuing to wait...")
+                            continue
+                        else:
+                            logger.info(f"Process has exited with code: {process.returncode}")
+                            break
+
                     if not line:
+                        logger.info(f"EOF reached after {line_count} lines")
                         break
+
                     decoded = line.decode("utf-8", errors="replace").rstrip()
                     output_lines.append(decoded)
                     logs.append(decoded)
                     line_count += 1
 
+                    # Log progress every 10 lines
+                    if line_count % 10 == 0:
+                        logger.info(f"Read {line_count} lines so far...")
+
                     if len(output_lines) <= self.options.max_output_lines:
                         if on_output:
                             await on_output(decoded)
-                logger.info(f"Read {line_count} lines of output")
+                logger.info(f"Finished reading output: {line_count} lines total")
 
             try:
                 logger.info("Reading output...")
