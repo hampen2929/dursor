@@ -128,6 +128,13 @@ export interface RunsCreated {
   run_ids: string[];
 }
 
+// Streaming Output
+export interface OutputLine {
+  line_number: number;
+  content: string;
+  timestamp: number;
+}
+
 // Pull Request
 export interface PRSummary {
   id: string;

@@ -78,12 +78,11 @@ class ClaudeCodeExecutor:
         # Build command
         # Use --print (-p) for non-interactive mode with instruction as argument
         # Note: Using create_subprocess_exec avoids shell escaping issues
-        # Use --output-format json to get session ID in response
         # Use --dangerously-skip-permissions to allow edits without prompts in automated mode
+        # Note: We do NOT use --output-format json as it suppresses streaming output
         cmd = [
             self.options.claude_cli_path,
             "-p", instruction,  # Pass instruction directly as argument
-            "--output-format", "json",
             "--dangerously-skip-permissions",  # Allow file edits without permission prompts
         ]
 
@@ -94,7 +93,7 @@ class ClaudeCodeExecutor:
             logs.append(f"Continuing session: {resume_session_id}")
 
         # Don't log full instruction - it can be very long
-        cmd_display = [self.options.claude_cli_path, "-p", f"<instruction:{len(instruction)} chars>", "--output-format", "json"]
+        cmd_display = [self.options.claude_cli_path, "-p", f"<instruction:{len(instruction)} chars>"]
         logs.append(f"Executing: {' '.join(cmd_display)}")
         logs.append(f"Working directory: {worktree_path}")
         logs.append(f"Instruction length: {len(instruction)} chars")
@@ -220,7 +219,12 @@ class ClaudeCodeExecutor:
             )
 
     def _extract_session_id(self, output_lines: list[str]) -> str | None:
-        """Extract session ID from Claude CLI JSON output.
+        """Extract session ID from Claude CLI output.
+
+        Claude CLI outputs session information in various formats:
+        - JSON: {"session_id": "uuid"}
+        - Text: "Session ID: uuid" or "session: uuid"
+        - Hint: "To continue, use --session-id uuid"
 
         Args:
             output_lines: Output lines from Claude CLI execution.
@@ -228,12 +232,12 @@ class ClaudeCodeExecutor:
         Returns:
             Session ID if found, None otherwise.
         """
-        # Claude CLI with --output-format json outputs JSON objects
-        # Look for session_id in the output
+        uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+        # Try JSON parsing first (in case output contains JSON)
         for line in output_lines:
             try:
                 data = json.loads(line)
-                # Check for session_id in various possible formats
                 if isinstance(data, dict):
                     if "session_id" in data:
                         return data["session_id"]
@@ -242,13 +246,28 @@ class ClaudeCodeExecutor:
             except json.JSONDecodeError:
                 continue
 
-        # Fallback: try to find session ID in combined output
-        combined = "\n".join(output_lines)
-        # Look for UUID pattern that might be a session ID
-        uuid_pattern = r'"session_id":\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"'
-        match = re.search(uuid_pattern, combined, re.IGNORECASE)
-        if match:
-            return match.group(1)
+        # Search for session ID patterns in text output
+        patterns = [
+            # "Session ID: <uuid>" or "session_id: <uuid>"
+            re.compile(r"session[_\s]?id[:\s]+(" + uuid_pattern + r")", re.IGNORECASE),
+            # "--session-id <uuid>" hint
+            re.compile(r"--session-id\s+(" + uuid_pattern + r")", re.IGNORECASE),
+            # "session: <uuid>"
+            re.compile(r"\bsession[:\s]+(" + uuid_pattern + r")", re.IGNORECASE),
+        ]
+
+        for line in reversed(output_lines):  # Check recent lines first
+            for pattern in patterns:
+                match = pattern.search(line)
+                if match:
+                    return match.group(1)
+
+        # Fallback: search combined output
+        combined = "\n".join(output_lines[-500:])  # Limit to avoid huge joins
+        for pattern in patterns:
+            match = pattern.search(combined)
+            if match:
+                return match.group(1)
 
         return None
 
