@@ -4,16 +4,21 @@ Welcome to the dursor documentation. This guide will help you understand, develo
 
 ## Documentation Index
 
-### For Users
+### Getting Started
 
-- [README](../README.md) - Project overview and quick start guide
+- [Project Overview](./overview.md) - **Start here** - Comprehensive project summary
+- [README](../README.md) - Quick start guide
 
-### For Developers
+### Architecture & Design
 
-- [Architecture](./architecture.md) - System architecture and design patterns
-- [API Reference](./api.md) - Complete REST API documentation
-- [Development Guide](./development.md) - Environment setup and development workflow
+- [System Architecture](./architecture.md) - System design and patterns
 - [Agent System](./agents.md) - Agent architecture and LLM integration
+- [UI/UX Improvement Plan](./ui-ux-improvement.md) - Frontend design roadmap
+
+### Reference
+
+- [API Reference](./api.md) - Complete REST API documentation
+- [Development Guide](./development.md) - Environment setup and workflow
 
 ### For Contributors
 
