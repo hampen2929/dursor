@@ -64,10 +64,10 @@ class OutputManager:
         self._lock = asyncio.Lock()
 
     def publish(self, run_id: str, line: str) -> None:
-        """Publish an output line for a run.
+        """Publish an output line for a run (sync version).
 
-        This method is synchronous for easy integration with executor callbacks.
-        It schedules the async work to run in the event loop.
+        This method is synchronous and schedules the async work to run
+        in the event loop. Use publish_async for immediate delivery.
 
         Args:
             run_id: The run ID.
@@ -79,6 +79,18 @@ class OutputManager:
         except RuntimeError:
             # No running event loop - log and skip
             logger.warning(f"No event loop for publishing to run {run_id}")
+
+    async def publish_async(self, run_id: str, line: str) -> None:
+        """Publish an output line for a run (async version).
+
+        This method awaits the publication, ensuring immediate delivery
+        to all subscribers. Prefer this in async contexts.
+
+        Args:
+            run_id: The run ID.
+            line: The output line content.
+        """
+        await self._publish_async(run_id, line)
 
     async def _publish_async(self, run_id: str, line: str) -> None:
         """Async implementation of publish.
@@ -93,6 +105,7 @@ class OutputManager:
                 self._streams[run_id] = []
                 self._subscribers[run_id] = []
                 self._completed[run_id] = None
+                logger.debug(f"Initialized stream for run {run_id}")
 
             # Create output line
             line_number = len(self._streams[run_id])
@@ -108,6 +121,8 @@ class OutputManager:
                 self._streams[run_id] = self._streams[run_id][-self.max_history :]
 
             # Notify all subscribers
+            subscriber_count = len(self._subscribers[run_id])
+            logger.debug(f"Publishing line {line_number} to {subscriber_count} subscribers for run {run_id}")
             for queue in self._subscribers[run_id]:
                 try:
                     queue.put_nowait(output_line)
@@ -141,13 +156,16 @@ class OutputManager:
                 self._streams[run_id] = []
                 self._subscribers[run_id] = []
                 self._completed[run_id] = None
+                logger.info(f"Subscriber initialized new stream for run {run_id}")
 
             # Register subscriber
             self._subscribers[run_id].append(queue)
+            logger.info(f"Subscriber registered for run {run_id}, total subscribers: {len(self._subscribers[run_id])}")
 
             # Get existing history
             history = self._streams[run_id][from_line:]
             is_completed = self._completed[run_id] is not None
+            logger.info(f"Subscribe to run {run_id}: history={len(history)} lines, completed={is_completed}")
 
         try:
             # Yield historical lines

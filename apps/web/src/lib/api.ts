@@ -32,6 +32,23 @@ import type {
 
 const API_BASE = '/api';
 
+// For SSE connections, we need to connect directly to the backend
+// because Next.js rewrites may buffer the response
+const getSSEBaseUrl = (): string => {
+  // In browser, use NEXT_PUBLIC_API_URL if set, otherwise try to derive from window location
+  if (typeof window !== 'undefined') {
+    const publicApiUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (publicApiUrl) {
+      return publicApiUrl;
+    }
+    // Fallback: assume backend is on port 8000 of the same host
+    // This works for local development
+    return `http://${window.location.hostname}:8000/v1`;
+  }
+  // Server-side (shouldn't happen for SSE, but just in case)
+  return process.env.API_URL || 'http://localhost:8000/v1';
+};
+
 class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -156,6 +173,9 @@ export const runsApi = {
   /**
    * Stream run logs via Server-Sent Events (SSE).
    *
+   * Note: SSE connections go directly to the backend to avoid
+   * buffering issues with Next.js rewrites.
+   *
    * @param runId - The run ID to stream logs for
    * @param options - Streaming options
    * @returns Cleanup function to close the connection
@@ -170,7 +190,9 @@ export const runsApi = {
     }
   ): (() => void) => {
     const fromLine = options.fromLine ?? 0;
-    const url = `${API_BASE}/runs/${runId}/logs/stream?from_line=${fromLine}`;
+    // Use direct backend URL for SSE to avoid Next.js buffering
+    const sseBaseUrl = getSSEBaseUrl();
+    const url = `${sseBaseUrl}/runs/${runId}/logs/stream?from_line=${fromLine}`;
     const eventSource = new EventSource(url);
 
     eventSource.onmessage = (event) => {

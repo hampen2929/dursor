@@ -697,8 +697,11 @@ class RunService:
         logger.info(f"[{run_id[:8]}] {line}")
 
         # Publish to OutputManager for SSE streaming
+        # Use await to ensure immediate delivery to subscribers
         if self.output_manager:
-            self.output_manager.publish(run_id, line)
+            await self.output_manager.publish_async(run_id, line)
+        else:
+            logger.warning(f"[{run_id[:8]}] OutputManager not available, cannot publish")
 
     def _generate_commit_message(self, instruction: str, summary: str | None) -> str:
         """Generate a commit message from instruction and summary.

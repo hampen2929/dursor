@@ -1,6 +1,7 @@
 """Run routes."""
 
 import json
+import logging
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +11,8 @@ from dursor_api.domain.models import Run, RunCreate, RunsCreated
 from dursor_api.dependencies import get_output_manager, get_run_service
 from dursor_api.services.output_manager import OutputManager
 from dursor_api.services.run_service import RunService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["runs"])
 
@@ -100,6 +103,8 @@ async def stream_run_logs(
 
     async def generate_sse() -> AsyncGenerator[str, None]:
         """Generate SSE events from output stream."""
+        logger.info(f"SSE stream started for run {run_id}, from_line={from_line}")
+        line_count = 0
         try:
             async for output_line in output_manager.subscribe(run_id, from_line):
                 data = json.dumps({
@@ -108,12 +113,17 @@ async def stream_run_logs(
                     "timestamp": output_line.timestamp,
                 })
                 yield f"data: {data}\n\n"
+                line_count += 1
+                if line_count % 10 == 0:
+                    logger.debug(f"SSE sent {line_count} lines for run {run_id}")
 
             # Send completion event
+            logger.info(f"SSE stream completed for run {run_id}, sent {line_count} lines")
             yield "event: complete\ndata: {}\n\n"
 
         except Exception as e:
             # Send error event
+            logger.error(f"SSE stream error for run {run_id}: {e}")
             error_data = json.dumps({"error": str(e)})
             yield f"event: error\ndata: {error_data}\n\n"
 
