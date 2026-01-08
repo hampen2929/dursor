@@ -55,8 +55,11 @@ dursor is designed for:
 | On-premises / Localhost | ✅ | ❌ | ✅ | ✅ | ❌ |
 | Multiple AI models | ✅ | ✅ | ✅ | ❌ | ❌ |
 | BYO API Key | ✅ | ❌ | ✅ | ✅ | ❌ |
-| CLI integration | ❌ | ❌ | ❌ | ✅ | ❌ |
+| OSS | ✅ | ❌ | ❌ | ✅ | ❌ |
+| CLI integration | ✅* | ❌ | ❌ | ✅ | ❌ |
 | IDE integration | ❌ | ❌ | ✅ | ❌ | ❌ |
+
+*dursor runs AI Coding CLIs on localhost behind the scenes
 
 > **dursor is the only solution that combines a web-based chat interface, localhost deployment, and multiple AI models.**
 
