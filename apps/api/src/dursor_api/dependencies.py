@@ -1,6 +1,5 @@
 """FastAPI dependency injection."""
 
-from functools import lru_cache
 
 from dursor_api.config import settings
 from dursor_api.services.crypto_service import CryptoService
@@ -8,20 +7,19 @@ from dursor_api.services.git_service import GitService
 from dursor_api.services.github_service import GitHubService
 from dursor_api.services.model_service import ModelService
 from dursor_api.services.output_manager import OutputManager
+from dursor_api.services.pr_service import PRService
 from dursor_api.services.repo_service import RepoService
 from dursor_api.services.run_service import RunService
-from dursor_api.services.pr_service import PRService
-from dursor_api.storage.db import Database, get_db
 from dursor_api.storage.dao import (
+    PRDAO,
     MessageDAO,
     ModelProfileDAO,
-    PRDAO,
     RepoDAO,
     RunDAO,
     TaskDAO,
     UserPreferencesDAO,
 )
-
+from dursor_api.storage.db import get_db
 
 # Singletons
 _crypto_service: CryptoService | None = None

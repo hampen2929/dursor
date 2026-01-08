@@ -7,7 +7,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dursor_api.domain.models import FileDiff
 from dursor_api.executors.claude_code_executor import ExecutorResult
 
 

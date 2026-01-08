@@ -9,10 +9,10 @@ from typing import Any
 
 from dursor_api.domain.enums import ExecutorType, MessageRole, Provider, RunStatus
 from dursor_api.domain.models import (
+    PR,
     FileDiff,
     Message,
     ModelProfile,
-    PR,
     Repo,
     Run,
     Task,
@@ -50,7 +50,8 @@ class ModelProfileDAO:
 
         await self.db.connection.execute(
             """
-            INSERT INTO model_profiles (id, provider, model_name, display_name, api_key_encrypted, created_at)
+            INSERT INTO model_profiles
+            (id, provider, model_name, display_name, api_key_encrypted, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (id, provider.value, model_name, display_name, api_key_encrypted, created_at),
@@ -128,7 +129,8 @@ class RepoDAO:
 
         await self.db.connection.execute(
             """
-            INSERT INTO repos (id, repo_url, default_branch, latest_commit, workspace_path, created_at)
+            INSERT INTO repos
+            (id, repo_url, default_branch, latest_commit, workspace_path, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (id, repo_url, default_branch, latest_commit, workspace_path, created_at),
@@ -334,7 +336,11 @@ class RunDAO:
 
         await self.db.connection.execute(
             """
-            INSERT INTO runs (id, task_id, model_id, model_name, provider, executor_type, working_branch, worktree_path, session_id, instruction, base_ref, status, created_at)
+            INSERT INTO runs (
+                id, task_id, model_id, model_name, provider, executor_type,
+                working_branch, worktree_path, session_id, instruction,
+                base_ref, status, created_at
+            )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -547,7 +553,11 @@ class RunDAO:
         provider = Provider(row["provider"]) if row["provider"] else None
 
         # Handle executor_type with default for backward compatibility
-        executor_type = ExecutorType(row["executor_type"]) if row["executor_type"] else ExecutorType.PATCH_AGENT
+        executor_type = (
+            ExecutorType(row["executor_type"])
+            if row["executor_type"]
+            else ExecutorType.PATCH_AGENT
+        )
 
         return Run(
             id=row["id"],
@@ -570,8 +580,14 @@ class RunDAO:
             warnings=warnings,
             error=row["error"],
             created_at=datetime.fromisoformat(row["created_at"]),
-            started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
-            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+            started_at=(
+                datetime.fromisoformat(row["started_at"]) if row["started_at"] else None
+            ),
+            completed_at=(
+                datetime.fromisoformat(row["completed_at"])
+                if row["completed_at"]
+                else None
+            ),
         )
 
 
@@ -597,7 +613,10 @@ class PRDAO:
 
         await self.db.connection.execute(
             """
-            INSERT INTO prs (id, task_id, number, url, branch, title, body, latest_commit, status, created_at, updated_at)
+            INSERT INTO prs (
+                id, task_id, number, url, branch, title, body,
+                latest_commit, status, created_at, updated_at
+            )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (id, task_id, number, url, branch, title, body, latest_commit, "open", now, now),

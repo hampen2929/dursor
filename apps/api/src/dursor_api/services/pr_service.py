@@ -15,7 +15,16 @@ from urllib.parse import urlencode, urlparse
 
 from dursor_api.agents.llm_router import LLMConfig, LLMRouter
 from dursor_api.domain.enums import Provider
-from dursor_api.domain.models import PR, PRCreate, PRCreateAuto, PRCreateLink, PRCreated, PRSyncResult, PRUpdate, Repo
+from dursor_api.domain.models import (
+    PR,
+    PRCreate,
+    PRCreateAuto,
+    PRCreated,
+    PRCreateLink,
+    PRSyncResult,
+    PRUpdate,
+    Repo,
+)
 from dursor_api.services.commit_message import ensure_english_commit_message
 from dursor_api.services.git_service import GitService
 from dursor_api.services.repo_service import RepoService

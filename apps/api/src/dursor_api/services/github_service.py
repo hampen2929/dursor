@@ -85,7 +85,8 @@ class GitHubService:
                 await self.db.execute(
                     """
                     UPDATE github_app_config
-                    SET app_id = ?, private_key = ?, installation_id = ?, updated_at = CURRENT_TIMESTAMP
+                    SET app_id = ?, private_key = ?, installation_id = ?,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = 1
                     """,
                     (data.app_id, encoded_key, data.installation_id),
