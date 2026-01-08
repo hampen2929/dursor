@@ -43,6 +43,7 @@ class Database:
 
     async def _run_migrations(self) -> None:
         """Run database migrations for existing databases."""
+        # Migrations for runs table
         cursor = await self._connection.execute("PRAGMA table_info(runs)")
         columns = await cursor.fetchall()
         column_names = [col["name"] for col in columns]
@@ -60,6 +61,19 @@ class Database:
                 "ALTER TABLE runs ADD COLUMN commit_sha TEXT"
             )
             await self._connection.commit()
+
+        # Migrations for user_preferences table (only if table exists)
+        cursor = await self._connection.execute("PRAGMA table_info(user_preferences)")
+        columns = await cursor.fetchall()
+        if columns:  # Table exists
+            column_names = [col["name"] for col in columns]
+
+            # Migration: Add branch_prefix column to user_preferences table if it doesn't exist
+            if "branch_prefix" not in column_names:
+                await self._connection.execute(
+                    "ALTER TABLE user_preferences ADD COLUMN branch_prefix TEXT DEFAULT 'dursor'"
+                )
+                await self._connection.commit()
 
     @property
     def connection(self) -> aiosqlite.Connection:
