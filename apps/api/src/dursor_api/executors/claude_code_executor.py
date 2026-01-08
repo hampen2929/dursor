@@ -79,10 +79,12 @@ class ClaudeCodeExecutor:
         # Use --print (-p) for non-interactive mode with instruction as argument
         # Note: Using create_subprocess_exec avoids shell escaping issues
         # Use --output-format json to get session ID in response
+        # Use --dangerously-skip-permissions to allow edits without prompts in automated mode
         cmd = [
             self.options.claude_cli_path,
             "-p", instruction,  # Pass instruction directly as argument
             "--output-format", "json",
+            "--dangerously-skip-permissions",  # Allow file edits without permission prompts
         ]
 
         # Add --session-id flag if we have a previous session ID
