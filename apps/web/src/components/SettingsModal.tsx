@@ -504,6 +504,7 @@ function DefaultsTab() {
   const [selectedRepo, setSelectedRepo] = useState<string>('');
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [branches, setBranches] = useState<string[]>([]);
+  const [branchPrefix, setBranchPrefix] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const { success, error: toastError } = useToast();
@@ -519,6 +520,40 @@ function DefaultsTab() {
       }
     }
   }, [preferences, repos]);
+
+  // Initialize branch prefix from preferences
+  useEffect(() => {
+    if (preferences) {
+      setBranchPrefix(preferences.default_branch_prefix || '');
+    }
+  }, [preferences]);
+
+  const selectedRepoDefaultBranch = (() => {
+    if (!repos || !selectedRepo) return null;
+    return repos.find((r) => r.full_name === selectedRepo)?.default_branch ?? null;
+  })();
+
+  const branchOptions: { value: string; label: string }[] = (() => {
+    const list = branches || [];
+    const seen = new Set<string>();
+    const opts: { value: string; label: string }[] = [];
+
+    if (selectedRepoDefaultBranch) {
+      seen.add(selectedRepoDefaultBranch);
+      opts.push({
+        value: selectedRepoDefaultBranch,
+        label: `Default (${selectedRepoDefaultBranch})`,
+      });
+    }
+
+    for (const b of list) {
+      if (seen.has(b)) continue;
+      seen.add(b);
+      opts.push({ value: b, label: b });
+    }
+
+    return opts;
+  })();
 
   const loadBranches = async (owner: string, repo: string, defaultBranch?: string | null) => {
     setBranchesLoading(true);
@@ -559,6 +594,7 @@ function DefaultsTab() {
         default_repo_owner: owner,
         default_repo_name: repo,
         default_branch: selectedBranch || null,
+        default_branch_prefix: branchPrefix.trim() ? branchPrefix.trim() : null,
       });
       mutate('preferences');
       success('Default settings saved successfully');
@@ -576,10 +612,12 @@ function DefaultsTab() {
         default_repo_owner: null,
         default_repo_name: null,
         default_branch: null,
+        default_branch_prefix: null,
       });
       setSelectedRepo('');
       setSelectedBranch('');
       setBranches([]);
+      setBranchPrefix('');
       mutate('preferences');
       success('Default settings cleared');
     } catch (err) {
@@ -674,9 +712,9 @@ function DefaultsTab() {
             <option value="">
               {branchesLoading ? 'Loading branches...' : 'Select a branch'}
             </option>
-            {branches.map((branch) => (
-              <option key={branch} value={branch}>
-                {branch}
+            {branchOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
               </option>
             ))}
           </select>
@@ -684,6 +722,15 @@ function DefaultsTab() {
             Select the branch that will be pre-selected when creating new tasks.
           </p>
         </div>
+
+        {/* Branch prefix */}
+        <Input
+          label="Branch Prefix"
+          value={branchPrefix}
+          onChange={(e) => setBranchPrefix(e.target.value)}
+          placeholder="dursor"
+          hint="Prefix used for new work branches (e.g., dursor/abcd1234). Leave blank to use the default."
+        />
 
         {/* Action buttons */}
         <div className="flex gap-2 pt-2">
