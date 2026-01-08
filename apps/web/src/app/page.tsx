@@ -46,8 +46,8 @@ export default function HomePage() {
   useClickOutside(repoDropdownRef, () => setShowRepoDropdown(false), showRepoDropdown);
 
   // Data fetching
-  const { data: models } = useSWR('models', modelsApi.list);
-  const { data: repos } = useSWR('github-repos', githubApi.listRepos);
+  const { data: models, isLoading: modelsLoading } = useSWR('models', modelsApi.list);
+  const { data: repos, isLoading: reposLoading } = useSWR('github-repos', githubApi.listRepos);
   const { data: preferences } = useSWR('preferences', preferencesApi.get);
   const { data: branches } = useSWR(
     selectedRepo ? `branches-${selectedRepo.owner}-${selectedRepo.name}` : null,
@@ -179,28 +179,30 @@ export default function HomePage() {
     (isCLI || selectedModels.length > 0);
 
   // Compute validation errors for display
+  // Don't show errors while data is still loading
   const getValidationErrors = () => {
     const errors: { message: string; action?: { label: string; href: string } }[] = [];
 
-    // Note: We don't show "指示を入力してください" as it's obvious from the placeholder
-    if (!repos) {
+    // Only show GitHub App error after loading completes
+    if (!reposLoading && !repos) {
       errors.push({
         message: 'GitHub Appが未設定です',
         action: { label: '設定する', href: '#settings-github' },
       });
-    } else if (!selectedRepo) {
+    } else if (!reposLoading && repos && !selectedRepo) {
       errors.push({ message: 'リポジトリを選択してください' });
     }
     if (selectedRepo && !selectedBranch) {
       errors.push({ message: 'ブランチを選択してください' });
     }
+    // Only show model errors after loading completes
     if (!isCLI && selectedModels.length === 0) {
-      if (!models || models.length === 0) {
+      if (!modelsLoading && (!models || models.length === 0)) {
         errors.push({
           message: 'モデルが未登録です',
           action: { label: '設定する', href: '#settings-models' },
         });
-      } else {
+      } else if (!modelsLoading && models && models.length > 0) {
         errors.push({ message: 'モデルを選択してください' });
       }
     }
