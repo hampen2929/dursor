@@ -53,7 +53,8 @@ dursor is designed for:
 |---|:---:|:---:|:---:|:---:|
 | Multiple AI models | ✅ | ❌ | ✅ | ✅ |
 | On-premises / Localhost | ✅ | ✅ | ❌ | ❌ |
-| Chat-based interface | ✅ | ❌ | ✅ | ✅ |
+| Web-based chat interface | ✅ | ❌ | ✅ | ❌ |
+| IDE integration | ❌ | ❌ | ❌ | ✅ |
 
 ## Quick Start
 
