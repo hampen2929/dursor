@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     default_repo_owner TEXT,                -- Default repository owner (e.g., "anthropics")
     default_repo_name TEXT,                 -- Default repository name (e.g., "claude-code")
     default_branch TEXT,                    -- Default branch (e.g., "main")
+    default_branch_prefix TEXT,             -- Default branch prefix for work branches (e.g., "dursor")
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
