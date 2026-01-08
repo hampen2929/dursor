@@ -188,13 +188,12 @@ class ClaudeCodeExecutor:
                     error=f"Claude Code exited with code {process.returncode}\n\nLast output:\n{tail}",
                 )
 
-            # Extract session ID and summary from JSON output
+            # Extract session ID from JSON output
             session_id = self._extract_session_id(output_lines)
-            summary = self._extract_summary(output_lines)
 
             return ExecutorResult(
                 success=True,
-                summary=summary or "",
+                summary="",
                 patch="",
                 files_changed=[],
                 logs=logs,
@@ -250,66 +249,6 @@ class ClaudeCodeExecutor:
         match = re.search(uuid_pattern, combined, re.IGNORECASE)
         if match:
             return match.group(1)
-
-        return None
-
-    def _extract_summary(self, output_lines: list[str]) -> str | None:
-        """Extract summary from Claude CLI JSON output.
-
-        Looks for the final 'result' message from the assistant in the JSON output.
-
-        Args:
-            output_lines: Output lines from Claude CLI execution.
-
-        Returns:
-            Summary text if found, None otherwise.
-        """
-        result_text: str | None = None
-
-        for line in output_lines:
-            try:
-                data = json.loads(line)
-                if not isinstance(data, dict):
-                    continue
-
-                # Look for 'result' field which contains the final response
-                if "result" in data:
-                    result = data["result"]
-                    if isinstance(result, str):
-                        result_text = result
-                    elif isinstance(result, dict) and "text" in result:
-                        result_text = result["text"]
-
-                # Also check for 'message' or 'content' fields
-                if "message" in data and isinstance(data["message"], str):
-                    result_text = data["message"]
-                if "content" in data:
-                    content = data["content"]
-                    if isinstance(content, str):
-                        result_text = content
-                    elif isinstance(content, list):
-                        # Content blocks format
-                        texts = []
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                texts.append(block.get("text", ""))
-                        if texts:
-                            result_text = " ".join(texts)
-
-            except json.JSONDecodeError:
-                continue
-
-        if result_text:
-            # Clean up and truncate if needed
-            result_text = result_text.strip()
-            # Take first 1-2 sentences (up to ~200 chars)
-            sentences = re.split(r'(?<=[.!?])\s+', result_text)
-            summary = ""
-            for sentence in sentences[:2]:
-                if len(summary) + len(sentence) > 200:
-                    break
-                summary += sentence + " "
-            return summary.strip() if summary else result_text[:200]
 
         return None
 

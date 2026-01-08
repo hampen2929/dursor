@@ -548,10 +548,15 @@ class RunService:
                 )
                 return
 
-            # 4. Stage all changes
+            # 4. Read and remove summary file (before staging)
+            summary_from_file = await self._read_and_remove_summary_file(
+                worktree_info.path, logs
+            )
+
+            # 5. Stage all changes
             await self.git_service.stage_all(worktree_info.path)
 
-            # 5. Get patch
+            # 6. Get patch
             patch = await self.git_service.get_diff(worktree_info.path, staged=True)
 
             # Skip commit/push if no changes
@@ -572,15 +577,22 @@ class RunService:
             files_changed = self._parse_diff(patch)
             logs.append(f"Detected {len(files_changed)} changed file(s)")
 
-            # 6. Commit (automatic)
-            commit_message = self._generate_commit_message(run.instruction, result.summary)
+            # Determine final summary (priority: file > CLI output > generated)
+            final_summary = (
+                summary_from_file
+                or result.summary
+                or self._generate_summary(files_changed)
+            )
+
+            # 7. Commit (automatic)
+            commit_message = self._generate_commit_message(run.instruction, final_summary)
             commit_sha = await self.git_service.commit(
                 worktree_info.path,
                 message=commit_message,
             )
             logs.append(f"Committed: {commit_sha[:8]}")
 
-            # 7. Push (automatic) - only if we have GitHub service configured
+            # 8. Push (automatic) - only if we have GitHub service configured
             if self.github_service and repo:
                 try:
                     owner, repo_name = self._parse_github_url(repo.repo_url)
@@ -595,11 +607,11 @@ class RunService:
                     logs.append(f"Push failed (will retry on PR creation): {push_error}")
                     # Continue without failing - push can be retried during PR creation
 
-            # 8. Save results
+            # 9. Save results
             await self.run_dao.update_status(
                 run.id,
                 RunStatus.SUCCEEDED,
-                summary=result.summary or self._generate_summary(files_changed),
+                summary=final_summary,
                 patch=patch,
                 files_changed=files_changed,
                 logs=logs + result.logs,
@@ -617,6 +629,44 @@ class RunService:
                 logs=logs + [f"Execution failed: {str(e)}"],
                 commit_sha=commit_sha,
             )
+
+    async def _read_and_remove_summary_file(
+        self,
+        worktree_path: Path,
+        logs: list[str],
+    ) -> str | None:
+        """Read summary from the agent-generated summary file and remove it.
+
+        The summary file is created by the agent at the end of execution.
+        We read it before staging to use as the run summary, then delete it
+        so it's not included in the commit.
+
+        Args:
+            worktree_path: Path to the worktree.
+            logs: Log list to append to.
+
+        Returns:
+            Summary text if file exists, None otherwise.
+        """
+        summary_file = worktree_path / AgentConstraints.SUMMARY_FILE_PATH
+        summary: str | None = None
+
+        try:
+            if summary_file.exists():
+                summary = summary_file.read_text(encoding="utf-8").strip()
+                logs.append(f"Read summary from {AgentConstraints.SUMMARY_FILE_PATH}")
+
+                # Remove the file so it's not committed
+                summary_file.unlink()
+                logs.append(f"Removed {AgentConstraints.SUMMARY_FILE_PATH}")
+
+                # Clean up empty summary
+                if not summary:
+                    summary = None
+        except Exception as e:
+            logs.append(f"Warning: Could not read summary file: {e}")
+
+        return summary
 
     async def _log_output(self, run_id: str, line: str) -> None:
         """Log output from CLI execution.

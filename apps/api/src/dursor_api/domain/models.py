@@ -294,6 +294,9 @@ class AgentConstraints(BaseModel):
         description="Read-only git commands that are allowed",
     )
 
+    # Summary file path constant
+    SUMMARY_FILE_PATH: str = ".dursor-summary.md"
+
     def to_prompt(self) -> str:
         """Convert constraints to prompt format for injection into agent instructions.
 
@@ -317,6 +320,21 @@ Access to the following paths is forbidden:
 
 ### Allowed Git Commands (Read-only)
 {allowed_commands_str}
+
+### Summary File (REQUIRED)
+After completing all changes, you MUST create a summary file at `{self.SUMMARY_FILE_PATH}`.
+This file should contain a brief summary (1-2 sentences in English) of what you did.
+
+Example content for `{self.SUMMARY_FILE_PATH}`:
+```
+Added user authentication with JWT tokens and password reset functionality.
+```
+
+Important:
+- Write ONLY the summary text, no headers or formatting
+- Keep it concise (1-2 sentences)
+- Write in English
+- This file will be automatically removed after reading
 """
 
 
