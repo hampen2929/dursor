@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import useSWR, { mutate } from 'swr';
 import { modelsApi, githubApi, preferencesApi } from '@/lib/api';
 import type { Provider, ModelProfileCreate, GitHubAppConfig, GitHubRepository, UserPreferences } from '@/types';
@@ -509,9 +509,14 @@ function DefaultsTab() {
   const [branchesLoading, setBranchesLoading] = useState(false);
   const { success, error: toastError } = useToast();
 
-  // Initialize from saved preferences
+  // Track whether we've done the initial load
+  const hasInitializedRef = useRef(false);
+
+  // Initialize from saved preferences (only once)
   useEffect(() => {
-    if (preferences && repos) {
+    if (preferences && repos && !hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      setBranchPrefix(preferences.default_branch_prefix || '');
       if (preferences.default_repo_owner && preferences.default_repo_name) {
         const repoFullName = `${preferences.default_repo_owner}/${preferences.default_repo_name}`;
         setSelectedRepo(repoFullName);
@@ -520,13 +525,6 @@ function DefaultsTab() {
       }
     }
   }, [preferences, repos]);
-
-  // Initialize branch prefix from preferences
-  useEffect(() => {
-    if (preferences) {
-      setBranchPrefix(preferences.default_branch_prefix || '');
-    }
-  }, [preferences]);
 
   const selectedRepoDefaultBranch = (() => {
     if (!repos || !selectedRepo) return null;
