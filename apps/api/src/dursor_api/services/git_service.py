@@ -177,6 +177,47 @@ class GitService:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _create_worktree)
 
+    async def is_ancestor(self, repo_path: Path, ancestor: str, descendant: str = "HEAD") -> bool:
+        """Check whether `ancestor` is an ancestor of `descendant`.
+
+        This is a thin wrapper around `git merge-base --is-ancestor`.
+
+        Args:
+            repo_path: Path to a git repo (workspace or worktree).
+            ancestor: Git ref expected to be an ancestor (e.g., 'origin/main').
+            descendant: Git ref expected to include the ancestor (default: 'HEAD').
+
+        Returns:
+            True if ancestor is an ancestor of descendant, False otherwise.
+        """
+
+        def _is_ancestor() -> bool:
+            repo = git.Repo(repo_path)
+
+            # Best-effort fetch to update origin refs (works for worktrees too).
+            try:
+                repo.git.fetch("origin", "--prune")
+            except Exception:
+                pass
+
+            # If the ancestor ref doesn't exist, we cannot reliably decide.
+            try:
+                repo.git.show_ref("--verify", f"refs/{ancestor}")
+            except git.GitCommandError:
+                try:
+                    repo.git.show_ref("--verify", f"refs/remotes/{ancestor}")
+                except git.GitCommandError:
+                    return True
+
+            try:
+                repo.git.merge_base("--is-ancestor", ancestor, descendant)
+                return True
+            except git.GitCommandError:
+                return False
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _is_ancestor)
+
     async def cleanup_worktree(
         self,
         worktree_path: Path,

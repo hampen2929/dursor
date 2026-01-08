@@ -287,14 +287,39 @@ class RunService:
             # Verify worktree is still valid (exists and is a valid git repo)
             worktree_path = Path(existing_run.worktree_path)
             if await self.git_service.is_valid_worktree(worktree_path):
-                # Reuse existing worktree
-                worktree_info = WorktreeInfo(
-                    path=worktree_path,
-                    branch_name=existing_run.working_branch,
-                    base_branch=existing_run.base_ref or base_ref,
-                    created_at=existing_run.created_at,
-                )
-                logger.info(f"Reusing existing worktree: {worktree_path}")
+                # If we're working from the repo's default branch, ensure the existing worktree
+                # still contains the latest origin/<default>. Otherwise, create a fresh worktree
+                # from the latest default to avoid PRs being based on a stale main.
+                should_check_default = (base_ref == repo.default_branch) and bool(repo.default_branch)
+                if should_check_default:
+                    default_ref = f"origin/{repo.default_branch}"
+                    up_to_date = await self.git_service.is_ancestor(
+                        repo_path=worktree_path,
+                        ancestor=default_ref,
+                        descendant="HEAD",
+                    )
+                    if not up_to_date:
+                        logger.info(
+                            "Existing worktree is behind latest default; creating a new worktree "
+                            f"(worktree={worktree_path}, default={default_ref})"
+                        )
+                    else:
+                        worktree_info = WorktreeInfo(
+                            path=worktree_path,
+                            branch_name=existing_run.working_branch,
+                            base_branch=existing_run.base_ref or base_ref,
+                            created_at=existing_run.created_at,
+                        )
+                        logger.info(f"Reusing existing worktree: {worktree_path}")
+                else:
+                    # Reuse existing worktree (no default-base freshness check)
+                    worktree_info = WorktreeInfo(
+                        path=worktree_path,
+                        branch_name=existing_run.working_branch,
+                        base_branch=existing_run.base_ref or base_ref,
+                        created_at=existing_run.created_at,
+                    )
+                    logger.info(f"Reusing existing worktree: {worktree_path}")
             else:
                 logger.warning(f"Worktree invalid or broken, will create new: {worktree_path}")
 
