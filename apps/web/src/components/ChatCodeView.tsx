@@ -27,6 +27,7 @@ import {
   ClipboardDocumentIcon,
   CodeBracketSquareIcon,
 } from '@heroicons/react/24/outline';
+import { StreamingLogs } from './StreamingLogs';
 
 interface ChatCodeViewProps {
   taskId: string;
@@ -601,27 +602,38 @@ function RunResultCard({
       {/* Expanded Content */}
       {expanded && (
         <div className="border-t border-gray-700/50">
-          {/* Running State */}
+          {/* Running State - Show streaming logs */}
           {run.status === 'running' && (
-            <div className="flex flex-col items-center justify-center py-8">
-              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
-              <p className="text-gray-400 font-medium text-sm">Running...</p>
-              <p className="text-gray-500 text-xs mt-1">This may take a few moments</p>
+            <div className="p-4">
+              <StreamingLogs
+                runId={run.id}
+                isRunning={true}
+                initialLogs={run.logs}
+              />
             </div>
           )}
 
-          {/* Queued State */}
+          {/* Queued State - Show waiting message with any existing logs */}
           {run.status === 'queued' && (
-            <div className="flex flex-col items-center justify-center py-8">
-              <ClockIcon className="w-8 h-8 text-gray-500 mb-3" />
-              <p className="text-gray-400 font-medium text-sm">Waiting in queue...</p>
-              <p className="text-gray-500 text-xs mt-1">Your run will start soon</p>
+            <div className="p-4">
+              <div className="flex flex-col items-center justify-center py-4 mb-4">
+                <ClockIcon className="w-8 h-8 text-gray-500 mb-3" />
+                <p className="text-gray-400 font-medium text-sm">Waiting in queue...</p>
+                <p className="text-gray-500 text-xs mt-1">Your run will start soon</p>
+              </div>
+              {run.logs && run.logs.length > 0 && (
+                <StreamingLogs
+                  runId={run.id}
+                  isRunning={false}
+                  initialLogs={run.logs}
+                />
+              )}
             </div>
           )}
 
           {/* Failed State */}
           {run.status === 'failed' && (
-            <div className="p-4">
+            <div className="p-4 space-y-4">
               <div className="p-3 bg-red-900/20 border border-red-800/50 rounded-lg">
                 <div className="flex items-center gap-2 mb-2">
                   <ExclamationTriangleIcon className="w-4 h-4 text-red-400" />
@@ -629,6 +641,17 @@ function RunResultCard({
                 </div>
                 <p className="text-sm text-red-300">{run.error}</p>
               </div>
+              {/* Show logs if available */}
+              {run.logs && run.logs.length > 0 && (
+                <div className="font-mono text-xs space-y-0.5 bg-gray-800/50 rounded-lg p-3 max-h-64 overflow-y-auto">
+                  {run.logs.map((log, i) => (
+                    <div key={i} className="text-gray-400 leading-relaxed">
+                      <span className="text-gray-600 mr-2 select-none">{i + 1}</span>
+                      {log}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
