@@ -61,27 +61,30 @@ class GeminiExecutor:
         # Build command
         # Gemini CLI: gemini "prompt" --yolo
         # --yolo = auto-approve all actions
-        # Note: -p flag is deprecated, use positional prompt instead
         # See: https://github.com/google-gemini/gemini-cli
         cmd = [
             self.options.gemini_cli_path,
-            instruction,
+            instruction,  # Pass instruction as positional argument
             "--yolo",
         ]
 
-        logs.append(f"Executing: {' '.join(cmd)}")
+        # Don't log full instruction - it can be very long
+        cmd_display = [self.options.gemini_cli_path, f"<instruction:{len(instruction)} chars>", "--yolo"]
+        logs.append(f"Executing: {' '.join(cmd_display)}")
         logs.append(f"Working directory: {worktree_path}")
+        logs.append(f"Instruction length: {len(instruction)} chars")
 
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,  # Prevent interactive input waiting
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(worktree_path),
                 env=env,
             )
 
-            # Stream output
+            # Stream output from CLI
             async def read_output():
                 while True:
                     line = await process.stdout.readline()
@@ -115,13 +118,16 @@ class GeminiExecutor:
             await process.wait()
 
             if process.returncode != 0:
+                # Include last few lines of output for debugging
+                tail_lines = logs[-20:] if logs else []
+                tail = "\n".join(tail_lines)
                 return ExecutorResult(
                     success=False,
                     summary="",
                     patch="",
                     files_changed=[],
                     logs=logs,
-                    error=f"Gemini CLI exited with code {process.returncode}",
+                    error=f"Gemini CLI exited with code {process.returncode}\n\nLast output:\n{tail}",
                 )
 
             # Generate diff from git changes

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import re
 from collections.abc import Awaitable, Callable
@@ -9,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from dursor_api.domain.models import FileDiff
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -73,12 +76,15 @@ class ClaudeCodeExecutor:
         # Note: Don't change HOME as Claude CLI needs access to ~/.claude for auth
 
         # Build command
-        # Use --print (-p) for non-interactive mode with instruction
+        # Use --print (-p) for non-interactive mode with instruction as argument
+        # Note: Using create_subprocess_exec avoids shell escaping issues
         # Use --output-format json to get session ID in response
+        # Use --dangerously-skip-permissions to allow edits without prompts in automated mode
         cmd = [
             self.options.claude_cli_path,
-            "-p", instruction,
+            "-p", instruction,  # Pass instruction directly as argument
             "--output-format", "json",
+            "--dangerously-skip-permissions",  # Allow file edits without permission prompts
         ]
 
         # Add --session-id flag if we have a previous session ID
@@ -87,38 +93,74 @@ class ClaudeCodeExecutor:
             cmd.extend(["--session-id", resume_session_id])
             logs.append(f"Continuing session: {resume_session_id}")
 
-        logs.append(f"Executing: {' '.join(cmd)}")
+        # Don't log full instruction - it can be very long
+        cmd_display = [self.options.claude_cli_path, "-p", f"<instruction:{len(instruction)} chars>", "--output-format", "json"]
+        logs.append(f"Executing: {' '.join(cmd_display)}")
         logs.append(f"Working directory: {worktree_path}")
+        logs.append(f"Instruction length: {len(instruction)} chars")
+        logger.info(f"Starting Claude Code CLI: {' '.join(cmd_display)}")
+        logger.info(f"Working directory: {worktree_path}")
+        logger.info(f"Instruction length: {len(instruction)} chars")
 
         try:
+            logger.info("Creating subprocess...")
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,  # Prevent interactive input waiting
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(worktree_path),
                 env=env,
             )
+            logger.info(f"Process created successfully with PID: {process.pid}")
 
-            # Stream output
+            # Stream output from CLI
             async def read_output():
+                line_count = 0
+                logger.info("Starting to read output lines...")
                 while True:
-                    line = await process.stdout.readline()
+                    # Add timeout per line to detect hanging
+                    try:
+                        line = await asyncio.wait_for(
+                            process.stdout.readline(),
+                            timeout=300.0  # 5 min timeout per line
+                        )
+                    except TimeoutError:
+                        logger.warning(f"No output for 5 minutes, checking if process is alive...")
+                        if process.returncode is None:
+                            logger.warning(f"Process still running (PID: {process.pid}), continuing to wait...")
+                            continue
+                        else:
+                            logger.info(f"Process has exited with code: {process.returncode}")
+                            break
+
                     if not line:
+                        logger.info(f"EOF reached after {line_count} lines")
                         break
+
                     decoded = line.decode("utf-8", errors="replace").rstrip()
                     output_lines.append(decoded)
                     logs.append(decoded)
+                    line_count += 1
+
+                    # Log progress every 10 lines
+                    if line_count % 10 == 0:
+                        logger.info(f"Read {line_count} lines so far...")
 
                     if len(output_lines) <= self.options.max_output_lines:
                         if on_output:
                             await on_output(decoded)
+                logger.info(f"Finished reading output: {line_count} lines total")
 
             try:
+                logger.info("Reading output...")
                 await asyncio.wait_for(
                     read_output(),
                     timeout=self.options.timeout_seconds,
                 )
+                logger.info("Output reading completed")
             except TimeoutError:
+                logger.error(f"Execution timed out after {self.options.timeout_seconds} seconds")
                 process.kill()
                 await process.wait()
                 return ExecutorResult(
@@ -131,15 +173,19 @@ class ClaudeCodeExecutor:
                 )
 
             await process.wait()
+            logger.info(f"Process exited with code: {process.returncode}")
 
             if process.returncode != 0:
+                # Include last few lines of output for debugging
+                tail_lines = logs[-20:] if logs else []
+                tail = "\n".join(tail_lines)
                 return ExecutorResult(
                     success=False,
                     summary="",
                     patch="",
                     files_changed=[],
                     logs=logs,
-                    error=f"Claude Code exited with code {process.returncode}",
+                    error=f"Claude Code exited with code {process.returncode}\n\nLast output:\n{tail}",
                 )
 
             # Extract session ID from JSON output

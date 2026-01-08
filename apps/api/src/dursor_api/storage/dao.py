@@ -392,6 +392,8 @@ class RunDAO:
         logs: list[str] | None = None,
         warnings: list[str] | None = None,
         error: str | None = None,
+        commit_sha: str | None = None,
+        session_id: str | None = None,
     ) -> None:
         """Update run status and results."""
         updates = ["status = ?"]
@@ -422,6 +424,12 @@ class RunDAO:
         if error is not None:
             updates.append("error = ?")
             params.append(error)
+        if commit_sha is not None:
+            updates.append("commit_sha = ?")
+            params.append(commit_sha)
+        if session_id is not None:
+            updates.append("session_id = ?")
+            params.append(session_id)
 
         params.append(id)
 
@@ -489,6 +497,39 @@ class RunDAO:
         row = await cursor.fetchone()
         return row["session_id"] if row else None
 
+    async def get_latest_worktree_run(
+        self,
+        task_id: str,
+        executor_type: ExecutorType,
+    ) -> Run | None:
+        """Get the latest run with a valid worktree for a task and executor type.
+
+        This is used to reuse an existing worktree for subsequent runs in the
+        same task, enabling conversation continuation in the same working directory.
+
+        Args:
+            task_id: Task ID.
+            executor_type: Type of executor.
+
+        Returns:
+            Run with worktree if found, None otherwise.
+        """
+        cursor = await self.db.connection.execute(
+            """
+            SELECT * FROM runs
+            WHERE task_id = ? AND executor_type = ?
+                AND worktree_path IS NOT NULL
+                AND status IN ('succeeded', 'failed', 'running', 'queued')
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (task_id, executor_type.value),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return self._row_to_model(row)
+
     def _row_to_model(self, row: Any) -> Run:
         files_changed = []
         if row["files_changed"]:
@@ -520,6 +561,7 @@ class RunDAO:
             session_id=row["session_id"],
             instruction=row["instruction"],
             base_ref=row["base_ref"],
+            commit_sha=row["commit_sha"] if "commit_sha" in row.keys() else None,
             status=RunStatus(row["status"]),
             summary=row["summary"],
             patch=row["patch"],
@@ -600,6 +642,14 @@ class PRDAO:
         await self.db.connection.execute(
             "UPDATE prs SET latest_commit = ?, updated_at = ? WHERE id = ?",
             (latest_commit, now_iso(), id),
+        )
+        await self.db.connection.commit()
+
+    async def update_body(self, id: str, body: str) -> None:
+        """Update PR's body/description."""
+        await self.db.connection.execute(
+            "UPDATE prs SET body = ?, updated_at = ? WHERE id = ?",
+            (body, now_iso(), id),
         )
         await self.db.connection.commit()
 
