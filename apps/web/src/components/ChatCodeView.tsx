@@ -2,7 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { tasksApi, runsApi, prsApi } from '@/lib/api';
-import type { Message, ModelProfile, ExecutorType, Run, RunStatus } from '@/types';
+import type {
+  Message,
+  ModelProfile,
+  ExecutorType,
+  Run,
+  RunLogEntry,
+  RunStatus,
+} from '@/types';
 import { Button } from './ui/Button';
 import { DiffViewer } from './DiffViewer';
 import { useToast } from './ui/Toast';
@@ -498,6 +505,91 @@ function RunResultCard({
   activeTab,
   onTabChange,
 }: RunResultCardProps) {
+  const [liveLogs, setLiveLogs] = useState<RunLogEntry[]>([]);
+  const [liveLogsLoading, setLiveLogsLoading] = useState(false);
+  const [liveLogsError, setLiveLogsError] = useState<string | null>(null);
+  const [sseStatus, setSseStatus] = useState<
+    'disconnected' | 'connecting' | 'connected' | 'error' | 'done'
+  >('disconnected');
+  const lastSeqRef = useRef<number>(0);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+    if (run.status !== 'running') return;
+
+    let cancelled = false;
+    let es: EventSource | null = null;
+
+    async function start() {
+      setLiveLogsLoading(true);
+      setLiveLogsError(null);
+
+      try {
+        const history = await runsApi.listLogs(run.id, 0, 1000);
+        if (cancelled) return;
+        setLiveLogs(history);
+        lastSeqRef.current = history.length > 0 ? history[history.length - 1].seq : 0;
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : 'Failed to load logs';
+        setLiveLogsError(message);
+      } finally {
+        if (!cancelled) setLiveLogsLoading(false);
+      }
+
+      setSseStatus('connecting');
+      es = new EventSource(`/api/runs/${run.id}/logs/stream?from_seq=${lastSeqRef.current}`);
+
+      es.onopen = () => {
+        if (!cancelled) setSseStatus('connected');
+      };
+
+      es.addEventListener('log', (evt) => {
+        if (cancelled) return;
+        try {
+          const msg = JSON.parse((evt as MessageEvent).data) as {
+            type: 'log';
+            data: RunLogEntry;
+          };
+          const entry = msg?.data;
+          if (!entry) return;
+          lastSeqRef.current = entry.seq;
+          setLiveLogs((prev) => {
+            const next = [...prev, entry];
+            if (next.length > 1000) next.splice(0, next.length - 1000);
+            return next;
+          });
+        } catch {
+          // ignore malformed events
+        }
+      });
+
+      es.addEventListener('done', () => {
+        if (!cancelled) setSseStatus('done');
+        es?.close();
+      });
+
+      es.onerror = () => {
+        if (!cancelled) setSseStatus('error');
+      };
+    }
+
+    start();
+
+    return () => {
+      cancelled = true;
+      es?.close();
+      setSseStatus('disconnected');
+    };
+  }, [expanded, run.id, run.status]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    if (run.status !== 'running') return;
+    logEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [expanded, run.status, liveLogs.length]);
+
   const getStatusBadge = () => {
     switch (run.status) {
       case 'succeeded':
@@ -603,10 +695,73 @@ function RunResultCard({
         <div className="border-t border-gray-700/50">
           {/* Running State */}
           {run.status === 'running' && (
-            <div className="flex flex-col items-center justify-center py-8">
-              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
-              <p className="text-gray-400 font-medium text-sm">Running...</p>
-              <p className="text-gray-500 text-xs mt-1">This may take a few moments</p>
+            <div className="py-6 px-4 space-y-4">
+              <div className="flex flex-col items-center justify-center">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
+                <p className="text-gray-400 font-medium text-sm">Running...</p>
+                <p className="text-gray-500 text-xs mt-1">This may take a few moments</p>
+              </div>
+
+              {/* Live stdout/stderr stream under Running... */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span className="font-medium text-gray-400">Live output</span>
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-2',
+                      sseStatus === 'connected'
+                        ? 'text-green-400'
+                        : sseStatus === 'connecting'
+                          ? 'text-yellow-400'
+                          : sseStatus === 'done'
+                            ? 'text-gray-400'
+                            : sseStatus === 'error'
+                              ? 'text-red-400'
+                              : 'text-gray-500'
+                    )}
+                  >
+                    <span className="select-none">●</span>
+                    <span>
+                      {sseStatus === 'connected'
+                        ? 'Connected'
+                        : sseStatus === 'connecting'
+                          ? 'Connecting'
+                          : sseStatus === 'done'
+                            ? 'Done'
+                            : sseStatus === 'error'
+                              ? 'Error'
+                              : 'Disconnected'}
+                    </span>
+                  </span>
+                </div>
+
+                <div className="font-mono text-xs bg-gray-900/40 border border-gray-700/60 rounded-lg p-3 max-h-56 overflow-y-auto">
+                  {liveLogsLoading && liveLogs.length === 0 ? (
+                    <p className="text-gray-500">Loading logs…</p>
+                  ) : liveLogsError ? (
+                    <p className="text-red-400">{liveLogsError}</p>
+                  ) : liveLogs.length === 0 ? (
+                    <p className="text-gray-500">No output yet.</p>
+                  ) : (
+                    liveLogs.map((entry) => (
+                      <div
+                        key={entry.seq}
+                        className={cn(
+                          'leading-relaxed whitespace-pre-wrap break-words',
+                          entry.stream === 'stderr'
+                            ? 'text-red-300'
+                            : entry.stream === 'system'
+                              ? 'text-purple-300'
+                              : 'text-gray-300'
+                        )}
+                      >
+                        {entry.text}
+                      </div>
+                    ))
+                  )}
+                  <div ref={logEndRef} />
+                </div>
+              </div>
             </div>
           )}
 
