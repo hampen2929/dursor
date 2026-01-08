@@ -54,7 +54,7 @@ dursor is designed for:
 | Web-based chat interface | ✅ | ✅ | ❌ | ❌ | ✅ |
 | On-premises / Localhost | ✅ | ❌ | ✅ | ✅ | ❌ |
 | Multiple AI models | ✅ | ✅ | ✅ | ❌ | ❌ |
-| CLI integration | ❌ | ❌ | ✅ | ✅ | ❌ |
+| CLI integration | ❌ | ❌ | ❌ | ✅ | ❌ |
 | IDE integration | ❌ | ❌ | ✅ | ❌ | ❌ |
 
 > **dursor is the only solution that combines multiple AI models, localhost deployment, and a web-based chat interface.**
