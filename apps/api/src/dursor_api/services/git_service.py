@@ -110,16 +110,34 @@ class GitService:
                 # Ignore fetch errors (might be offline)
                 pass
 
-            # Ensure base branch exists locally
+            # Ensure base branch exists locally and is up to date with remote
+            remote_ref = f"origin/{base_branch}"
             try:
-                source_repo.git.checkout(base_branch)
+                # Check if local branch exists
+                if base_branch in [ref.name for ref in source_repo.heads]:
+                    # Local branch exists - checkout and reset to remote
+                    source_repo.git.checkout(base_branch)
+                    try:
+                        # Reset local branch to match remote (sync to latest)
+                        source_repo.git.reset("--hard", remote_ref)
+                    except git.GitCommandError:
+                        # Remote ref might not exist, continue with local state
+                        pass
+                else:
+                    # Local branch doesn't exist - create from remote
+                    try:
+                        source_repo.git.checkout("-b", base_branch, remote_ref)
+                    except git.GitCommandError:
+                        # Remote ref might not exist, try checkout without tracking
+                        source_repo.git.checkout(base_branch)
             except git.GitCommandError:
+                # Fallback: just try to checkout whatever we have
                 try:
-                    source_repo.git.checkout("-b", base_branch, f"origin/{base_branch}")
+                    source_repo.git.checkout(base_branch)
                 except git.GitCommandError:
                     pass
 
-            # Create worktree with new branch
+            # Create worktree with new branch from the synced base branch
             source_repo.git.worktree(
                 "add",
                 "-b", branch_name,

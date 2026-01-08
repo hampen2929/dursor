@@ -594,8 +594,10 @@ class RunService:
                 or self._generate_summary(files_changed)
             )
 
-            # 7. Commit (automatic)
-            commit_message = self._generate_commit_message(run.instruction, final_summary)
+            # 7. Commit (automatic) - generate English commit message
+            commit_message = await self._generate_commit_message(
+                run.instruction, final_summary, files_changed
+            )
             commit_sha = await self.git_service.commit(
                 worktree_info.path,
                 message=commit_message,
@@ -703,21 +705,129 @@ class RunService:
         else:
             logger.warning(f"[{run_id[:8]}] OutputManager not available, cannot publish")
 
-    def _generate_commit_message(self, instruction: str, summary: str | None) -> str:
-        """Generate a commit message from instruction and summary.
+    async def _generate_commit_message(
+        self,
+        instruction: str,
+        summary: str | None,
+        files_changed: list[FileDiff] | None = None,
+    ) -> str:
+        """Generate an English commit message using LLM.
+
+        This method generates a commit message in English regardless of
+        the input language, following conventional commit message style.
 
         Args:
             instruction: Original user instruction.
             summary: Optional summary from executor.
+            files_changed: Optional list of changed files.
 
         Returns:
-            Commit message string.
+            English commit message string.
         """
-        # Use first line of instruction (truncate if too long)
-        first_line = instruction.split("\n")[0][:72]
+        # Build context for LLM
+        files_context = ""
+        if files_changed:
+            file_list = ", ".join(f.path for f in files_changed[:10])
+            if len(files_changed) > 10:
+                file_list += f" and {len(files_changed) - 10} more"
+            files_context = f"\n\nFiles changed: {file_list}"
+
+        prompt = f"""Generate a concise git commit message in English.
+
+## User Instruction (may be in any language)
+{instruction}
+
+## Summary of Changes
+{summary or "(No summary provided)"}{files_context}
+
+## Rules
+- Output ONLY the commit message, no quotes or extra text
+- Write the commit message in English (translate if needed)
+- Use imperative mood (e.g., "Add feature" not "Added feature")
+- First line should be under 72 characters
+- Be specific but concise
+- If there's important detail, add a blank line and then a brief body
+"""
+
+        try:
+            from dursor_api.agents.llm_router import LLMConfig
+            from dursor_api.domain.enums import Provider
+
+            config = LLMConfig(
+                provider=Provider.ANTHROPIC,
+                model_name="claude-3-haiku-20240307",
+                api_key="",  # Will be loaded from environment
+            )
+            llm_client = self.llm_router.get_client(config)
+            response = await llm_client.generate(
+                prompt=prompt,
+                system_prompt=(
+                    "You are a helpful assistant that generates clear and concise "
+                    "git commit messages in English. Output only the commit message."
+                ),
+            )
+            # Clean up the response
+            commit_message = response.strip().strip('"\'')
+
+            # Ensure first line is not too long
+            lines = commit_message.split("\n")
+            if len(lines[0]) > 72:
+                lines[0] = lines[0][:69] + "..."
+                commit_message = "\n".join(lines)
+
+            return commit_message
+        except Exception:
+            # Fallback to a simple English commit message
+            return self._generate_fallback_commit_message(instruction, summary, files_changed)
+
+    def _generate_fallback_commit_message(
+        self,
+        instruction: str,
+        summary: str | None,
+        files_changed: list[FileDiff] | None = None,
+    ) -> str:
+        """Generate a simple fallback commit message in English.
+
+        Used when LLM generation fails.
+
+        Args:
+            instruction: Original user instruction.
+            summary: Optional summary from executor.
+            files_changed: Optional list of changed files.
+
+        Returns:
+            Simple English commit message.
+        """
+        # Try to extract meaningful info from files changed
+        if files_changed:
+            file_count = len(files_changed)
+            total_added = sum(f.added_lines for f in files_changed)
+            total_removed = sum(f.removed_lines for f in files_changed)
+
+            # Try to identify the type of change from file paths
+            paths = [f.path for f in files_changed]
+            if any("test" in p.lower() for p in paths):
+                action = "Update tests"
+            elif any(p.endswith(".md") for p in paths):
+                action = "Update documentation"
+            elif any(
+                "config" in p.lower() or p.endswith((".json", ".yaml", ".yml", ".toml"))
+                for p in paths
+            ):
+                action = "Update configuration"
+            else:
+                action = "Update code"
+
+            message = f"{action}: modify {file_count} file(s) (+{total_added}/-{total_removed})"
+        else:
+            message = "Update code based on instruction"
+
         if summary:
-            return f"{first_line}\n\n{summary}"
-        return first_line
+            # Add summary as body (truncate if too long)
+            truncated_summary = summary[:500] if len(summary) > 500 else summary
+            return f"{message}\n\n{truncated_summary}"
+
+        return message
 
     def _parse_diff(self, diff: str) -> list[FileDiff]:
         """Parse unified diff to extract file change information.
