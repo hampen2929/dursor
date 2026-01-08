@@ -54,6 +54,7 @@ dursor is designed for:
 | Web-based chat interface | ✅ | ✅ | ❌ | ❌ | ✅ |
 | On-premises / Localhost | ✅ | ❌ | ✅ | ✅ | ❌ |
 | Multiple AI models | ✅ | ✅ | ✅ | ❌ | ❌ |
+| BYO API Key | ✅ | ❌ | ✅ | ✅ | ❌ |
 | CLI integration | ❌ | ❌ | ❌ | ✅ | ❌ |
 | IDE integration | ❌ | ❌ | ✅ | ❌ | ❌ |
 
