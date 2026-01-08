@@ -189,7 +189,8 @@ class OutputManager:
                     # Wait with timeout to allow checking completion
                     # Note: queue.get() returns OutputLine | None per queue's type
                     output_line = await asyncio.wait_for(
-                        queue.get(), timeout=1.0  # type: ignore[arg-type]
+                        queue.get(),
+                        timeout=1.0,  # type: ignore[arg-type]
                     )
 
                     if output_line is None:
