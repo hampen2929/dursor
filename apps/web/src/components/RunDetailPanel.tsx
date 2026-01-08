@@ -58,11 +58,37 @@ export function RunDetailPanel({
   const [creating, setCreating] = useState(false);
   const [prResult, setPRResult] = useState<{ url: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [templateLoaded, setTemplateLoaded] = useState(false);
 
   // Update tab when run changes or status changes
   useEffect(() => {
     setActiveTab(getDefaultTab(run.status));
   }, [run.id, run.status]);
+
+  // Fetch PR template when form is shown
+  useEffect(() => {
+    if (showPRForm && !templateLoaded && !prBody) {
+      prsApi.getTemplate(taskId)
+        .then((result) => {
+          if (result.template) {
+            setPRBody(result.template);
+          }
+          setTemplateLoaded(true);
+        })
+        .catch(() => {
+          // Silently ignore template fetch errors
+          setTemplateLoaded(true);
+        });
+    }
+  }, [showPRForm, taskId, templateLoaded, prBody]);
+
+  // Reset template loaded state when form is closed
+  useEffect(() => {
+    if (!showPRForm) {
+      setTemplateLoaded(false);
+    }
+  }, [showPRForm]);
+
   const { success, error } = useToast();
 
   const handleCreatePR = async (e: React.FormEvent) => {
@@ -230,7 +256,7 @@ export function RunDetailPanel({
                 value={prBody}
                 onChange={(e) => setPRBody(e.target.value)}
                 placeholder="PR description (optional)"
-                rows={2}
+                rows={8}
               />
               <div className="flex gap-2">
                 <Button

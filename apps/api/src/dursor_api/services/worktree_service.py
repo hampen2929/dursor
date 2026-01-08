@@ -73,32 +73,43 @@ class WorktreeService:
         def _create_worktree():
             source_repo = git.Repo(repo.workspace_path)
 
-            # Fetch to ensure we have latest refs
+            # Fetch to ensure we have latest refs from origin
             try:
-                source_repo.remotes.origin.fetch()
+                # Unshallow if this is a shallow clone to get full history
+                if source_repo.head.is_valid():
+                    is_shallow = source_repo.git.rev_parse("--is-shallow-repository")
+                    if is_shallow == "true":
+                        try:
+                            source_repo.git.fetch("--unshallow", "origin")
+                        except git.GitCommandError:
+                            # May fail if already unshallowed or other issues
+                            source_repo.remotes.origin.fetch()
+                    else:
+                        source_repo.remotes.origin.fetch()
+                else:
+                    source_repo.remotes.origin.fetch()
             except Exception:
                 # Ignore fetch errors (might be offline)
                 pass
 
-            # Ensure base branch exists locally
+            # Determine the start point for worktree
+            # Prefer origin/{base_branch} to ensure we use the latest remote state
+            start_point = base_branch
             try:
-                # Try to checkout the base branch first to ensure it exists
-                source_repo.git.checkout(base_branch)
+                # Check if origin/{base_branch} exists
+                source_repo.git.rev_parse(f"origin/{base_branch}")
+                start_point = f"origin/{base_branch}"
             except git.GitCommandError:
-                # If checkout fails, try to create from origin
-                try:
-                    source_repo.git.checkout("-b", base_branch, f"origin/{base_branch}")
-                except git.GitCommandError:
-                    # Branch might already exist, just use it
-                    pass
+                # Fall back to local branch if origin ref doesn't exist
+                pass
 
-            # Create worktree with new branch
-            # git worktree add -b <branch> <path> <base>
+            # Create worktree with new branch from the start point
+            # git worktree add -b <branch> <path> <start-point>
             source_repo.git.worktree(
                 "add",
                 "-b", branch_name,
                 str(worktree_path),
-                base_branch,
+                start_point,
             )
 
             return WorktreeInfo(
