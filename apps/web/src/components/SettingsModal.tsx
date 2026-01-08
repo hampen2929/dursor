@@ -526,13 +526,24 @@ function DefaultsTab() {
     setBranchesLoading(true);
     try {
       const branchList = await githubApi.listBranches(owner, repo);
-      setBranches(branchList);
-      if (defaultBranch && branchList.includes(defaultBranch)) {
+
+      // Get repository's default branch from repos list
+      const selectedRepoInfo = repos?.find(r => r.owner === owner && r.name === repo);
+      const repoDefaultBranch = selectedRepoInfo?.default_branch;
+
+      // Sort branches: default branch first, then alphabetically
+      const sortedBranches = [...branchList].sort((a, b) => {
+        if (a === repoDefaultBranch) return -1;
+        if (b === repoDefaultBranch) return 1;
+        return a.localeCompare(b);
+      });
+
+      setBranches(sortedBranches);
+      if (defaultBranch && sortedBranches.includes(defaultBranch)) {
         setSelectedBranch(defaultBranch);
-      } else if (branchList.length > 0) {
-        // Try to select 'main' or 'master' or the first branch
-        const mainBranch = branchList.find(b => b === 'main') || branchList.find(b => b === 'master') || branchList[0];
-        setSelectedBranch(mainBranch);
+      } else if (sortedBranches.length > 0) {
+        // Select the default branch (now first in the list)
+        setSelectedBranch(sortedBranches[0]);
       }
     } catch (err) {
       console.error('Failed to load branches:', err);
