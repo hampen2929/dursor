@@ -93,13 +93,45 @@ export default function BreakdownModal({ isOpen, onClose }: BreakdownModalProps)
     }
   }, [logs]);
 
+  // Get default branch for selected repo
+  const selectedRepoDefaultBranch = (() => {
+    if (!repos || !selectedRepo) return null;
+    return repos.find((r) => r.full_name === selectedRepo)?.default_branch ?? null;
+  })();
+
+  // Build branch options with default branch at top
+  const branchOptions: { value: string; label: string }[] = (() => {
+    const list = branches || [];
+    const seen = new Set<string>();
+    const opts: { value: string; label: string }[] = [];
+
+    if (selectedRepoDefaultBranch) {
+      seen.add(selectedRepoDefaultBranch);
+      opts.push({
+        value: selectedRepoDefaultBranch,
+        label: `Default (${selectedRepoDefaultBranch})`,
+      });
+    }
+
+    for (const b of list) {
+      if (seen.has(b)) continue;
+      seen.add(b);
+      opts.push({ value: b, label: b });
+    }
+
+    return opts;
+  })();
+
   // Load branches when repo changes
-  const loadBranches = useCallback(async (owner: string, repo: string) => {
+  const loadBranches = useCallback(async (owner: string, repo: string, defaultBranch?: string | null) => {
     setBranchesLoading(true);
     try {
       const branchList = await githubApi.listBranches(owner, repo);
       setBranches(branchList);
-      if (branchList.length > 0) {
+      // Select default branch if available
+      if (defaultBranch && branchList.includes(defaultBranch)) {
+        setSelectedBranch(defaultBranch);
+      } else if (branchList.length > 0) {
         const mainBranch =
           branchList.find((b) => b === 'main') ||
           branchList.find((b) => b === 'master') ||
@@ -121,7 +153,8 @@ export default function BreakdownModal({ isOpen, onClose }: BreakdownModalProps)
 
     if (fullName) {
       const [owner, repo] = fullName.split('/');
-      await loadBranches(owner, repo);
+      const repoInfo = repos?.find((r) => r.full_name === fullName);
+      await loadBranches(owner, repo, repoInfo?.default_branch);
     }
   };
 
@@ -323,9 +356,9 @@ export default function BreakdownModal({ isOpen, onClose }: BreakdownModalProps)
                   <option value="">
                     {branchesLoading ? 'Loading...' : 'Select a branch'}
                   </option>
-                  {branches.map((branch) => (
-                    <option key={branch} value={branch}>
-                      {branch}
+                  {branchOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
                     </option>
                   ))}
                 </select>
@@ -334,17 +367,17 @@ export default function BreakdownModal({ isOpen, onClose }: BreakdownModalProps)
 
             {/* Content Input */}
             <Textarea
-              label="Hearing Content"
+              label="Requirements"
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder={`Paste your hearing content here...
+              placeholder={`Paste your requirements here...
 
 Example:
 - Login screen doesn't show error message when password is wrong
 - Need search functionality on user list
 - Create admin-only pages with access control`}
               rows={8}
-              hint="Describe the requirements or issues you want to break down into tasks"
+              hint="Describe the requirements, issues, or features you want to break down into tasks"
             />
 
             {/* Agent Selection */}
