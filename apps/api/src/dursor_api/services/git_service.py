@@ -126,46 +126,33 @@ class GitService:
         def _create_worktree():
             source_repo = git.Repo(repo.workspace_path)
 
-            # Fetch to ensure we have latest refs
+            # Fetch to ensure we have latest refs from remote
             try:
                 source_repo.remotes.origin.fetch()
             except Exception:
                 # Ignore fetch errors (might be offline)
                 pass
 
-            # Ensure base branch exists locally and is up to date with remote
+            # Determine the base ref to use for worktree creation
+            # Prefer origin/{base_branch} to ensure we use the latest remote state
             remote_ref = f"origin/{base_branch}"
-            try:
-                # Check if local branch exists
-                if base_branch in [ref.name for ref in source_repo.heads]:
-                    # Local branch exists - checkout and reset to remote
-                    source_repo.git.checkout(base_branch)
-                    try:
-                        # Reset local branch to match remote (sync to latest)
-                        source_repo.git.reset("--hard", remote_ref)
-                    except git.GitCommandError:
-                        # Remote ref might not exist, continue with local state
-                        pass
-                else:
-                    # Local branch doesn't exist - create from remote
-                    try:
-                        source_repo.git.checkout("-b", base_branch, remote_ref)
-                    except git.GitCommandError:
-                        # Remote ref might not exist, try checkout without tracking
-                        source_repo.git.checkout(base_branch)
-            except git.GitCommandError:
-                # Fallback: just try to checkout whatever we have
-                try:
-                    source_repo.git.checkout(base_branch)
-                except git.GitCommandError:
-                    pass
+            base_ref_to_use = base_branch  # fallback
 
-            # Create worktree with new branch from the synced base branch
+            try:
+                # Check if remote ref exists
+                source_repo.git.rev_parse("--verify", remote_ref)
+                # Remote ref exists, use it directly for worktree creation
+                base_ref_to_use = remote_ref
+            except git.GitCommandError:
+                # Remote ref doesn't exist, fall back to local branch
+                pass
+
+            # Create worktree with new branch directly from the remote ref (latest state)
             source_repo.git.worktree(
                 "add",
                 "-b", branch_name,
                 str(worktree_path),
-                base_branch,
+                base_ref_to_use,
             )
 
             return WorktreeInfo(
@@ -300,6 +287,77 @@ class GitService:
 
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _check)
+
+    async def sync_worktree_with_base(
+        self,
+        worktree_path: Path,
+        base_branch: str,
+    ) -> bool:
+        """Sync a worktree with the latest state of the base branch.
+
+        This method fetches the latest from remote and rebases the worktree
+        branch on top of the updated base branch.
+
+        Args:
+            worktree_path: Path to the worktree.
+            base_branch: Base branch to sync with.
+
+        Returns:
+            True if sync was successful, False otherwise.
+        """
+        def _sync():
+            try:
+                repo = git.Repo(worktree_path)
+
+                # Fetch latest from origin
+                try:
+                    repo.remotes.origin.fetch()
+                except Exception:
+                    # Ignore fetch errors (might be offline)
+                    pass
+
+                # Determine the remote ref
+                remote_ref = f"origin/{base_branch}"
+
+                # Check if there are uncommitted changes
+                if repo.is_dirty(untracked_files=True):
+                    # Stash changes before rebase
+                    repo.git.stash("push", "-m", "dursor-auto-stash")
+                    had_stash = True
+                else:
+                    had_stash = False
+
+                try:
+                    # Rebase current branch on top of the latest base
+                    repo.git.rebase(remote_ref)
+                except git.GitCommandError:
+                    # Rebase failed, abort and return False
+                    try:
+                        repo.git.rebase("--abort")
+                    except git.GitCommandError:
+                        pass
+                    # Restore stash if we had one
+                    if had_stash:
+                        try:
+                            repo.git.stash("pop")
+                        except git.GitCommandError:
+                            pass
+                    return False
+
+                # Restore stash if we had one
+                if had_stash:
+                    try:
+                        repo.git.stash("pop")
+                    except git.GitCommandError:
+                        # Stash pop might fail due to conflicts, leave stash intact
+                        pass
+
+                return True
+            except Exception:
+                return False
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _sync)
 
     # ============================================================
     # Change Management

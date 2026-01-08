@@ -286,6 +286,16 @@ class RunService:
             # Verify worktree is still valid (exists and is a valid git repo)
             worktree_path = Path(existing_run.worktree_path)
             if await self.git_service.is_valid_worktree(worktree_path):
+                # Sync worktree with the latest base branch before reusing
+                sync_success = await self.git_service.sync_worktree_with_base(
+                    worktree_path,
+                    base_ref,
+                )
+                if sync_success:
+                    logger.info(f"Synced worktree with latest {base_ref}: {worktree_path}")
+                else:
+                    logger.warning(f"Failed to sync worktree with {base_ref}, continuing anyway")
+
                 # Reuse existing worktree
                 worktree_info = WorktreeInfo(
                     path=worktree_path,
