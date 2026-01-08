@@ -3,10 +3,12 @@
 import { use, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import useSWR, { mutate } from 'swr';
-import { tasksApi, runsApi, modelsApi } from '@/lib/api';
+import { tasksApi, runsApi, modelsApi, reposApi, prsApi } from '@/lib/api';
 import { ChatCodeView } from '@/components/ChatCodeView';
 import { MessageSkeleton } from '@/components/ui/Skeleton';
-import { ExclamationCircleIcon } from '@heroicons/react/24/outline';
+import { Button } from '@/components/ui/Button';
+import { useToast } from '@/components/ui/Toast';
+import { ClipboardDocumentIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline';
 import type { ExecutorType } from '@/types';
 
 interface PageProps {
@@ -15,6 +17,7 @@ interface PageProps {
 
 function TaskPageContent({ taskId }: { taskId: string }) {
   const searchParams = useSearchParams();
+  const { success, error } = useToast();
 
   // Parse query params for executor type and model IDs
   const executorType = (searchParams.get('executor') || 'patch_agent') as ExecutorType;
@@ -33,6 +36,48 @@ function TaskPageContent({ taskId }: { taskId: string }) {
   );
 
   const { data: models } = useSWR('models', modelsApi.list);
+
+  const { data: repo } = useSWR(
+    task ? `repo-${task.repo_id}` : null,
+    () => reposApi.get(task!.repo_id),
+    { revalidateOnFocus: false }
+  );
+
+  const latestRunBranch =
+    (runs || []).find((r) => r.working_branch)?.working_branch || null;
+  const displayBranch = latestRunBranch || repo?.default_branch || null;
+  const canCreatePR = (runs || []).some((r) => r.status === 'succeeded');
+
+  const copyBranch = async () => {
+    if (!displayBranch) return;
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(displayBranch);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = displayBranch;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      success('ブランチ名をコピーしました');
+    } catch {
+      error('コピーに失敗しました');
+    }
+  };
+
+  const createPR = async () => {
+    try {
+      const result = await prsApi.create(taskId, {});
+      success('PRを作成しました（新しいタブで開きます）');
+      window.open(result.url, '_blank', 'noopener,noreferrer');
+      mutate(`task-${taskId}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'PR作成に失敗しました';
+      error(message);
+    }
+  };
 
   // Error state
   if (taskError) {
@@ -60,6 +105,29 @@ function TaskPageContent({ taskId }: { taskId: string }) {
 
   return (
     <div className="max-w-4xl mx-auto h-[calc(100vh-8rem)]">
+      <div className="sticky top-0 z-20 -mx-1 mb-3 bg-gray-950/70 backdrop-blur border border-gray-800 rounded-lg px-3 py-2">
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={copyBranch}
+            disabled={!displayBranch}
+            className="flex items-center gap-1.5 text-xs font-mono text-purple-400 hover:text-purple-300 disabled:text-gray-600 disabled:hover:text-gray-600 transition-colors"
+            title={displayBranch ? 'クリックでコピー' : 'ブランチ情報がありません'}
+          >
+            <span>{displayBranch || '-'}</span>
+            <ClipboardDocumentIcon className="w-3.5 h-3.5" />
+          </button>
+          <Button
+            variant="success"
+            size="sm"
+            onClick={createPR}
+            disabled={!canCreatePR}
+            title={!canCreatePR ? '先に成功したRunを作成してください' : 'PRを自動生成して作成'}
+          >
+            PR作成
+          </Button>
+        </div>
+      </div>
       <ChatCodeView
         taskId={taskId}
         messages={task.messages}
@@ -70,7 +138,6 @@ function TaskPageContent({ taskId }: { taskId: string }) {
         onRunsCreated={() => {
           mutate(`runs-${taskId}`);
         }}
-        onPRCreated={() => mutate(`task-${taskId}`)}
       />
     </div>
   );

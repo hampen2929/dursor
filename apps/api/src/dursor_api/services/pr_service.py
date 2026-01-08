@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from dursor_api.agents.llm_router import LLMConfig, LLMRouter
+from dursor_api.config import settings
 from dursor_api.domain.enums import Provider
 from dursor_api.domain.models import PR, PRCreate, PRUpdate, Repo
 from dursor_api.services.git_service import GitService
@@ -78,6 +79,180 @@ class PRService:
 
         return parts[0], parts[1]
 
+    def _get_default_llm_config(self) -> LLMConfig | None:
+        """Get a default LLM config from environment models (if available)."""
+        env_models = settings.env_models
+        if not env_models:
+            return None
+
+        env_model = env_models[0]
+        try:
+            provider = Provider(env_model.provider)
+        except Exception:
+            return None
+
+        if not env_model.api_key or not env_model.model_name:
+            return None
+
+        return LLMConfig(
+            provider=provider,
+            model_name=env_model.model_name,
+            api_key=env_model.api_key,
+            temperature=0.2,
+            max_tokens=1024,
+        )
+
+    async def _get_diff_for_run(self, repo_obj: Repo, run) -> str:
+        """Get best-effort diff for a run (cumulative diff preferred, patch fallback)."""
+        # Prefer cumulative diff from worktree if available
+        if getattr(run, "worktree_path", None):
+            worktree_path = Path(run.worktree_path)
+            if worktree_path.exists():
+                base_ref = run.base_ref or repo_obj.default_branch
+                diff = await self.git_service.get_diff_from_base(worktree_path, base_ref=base_ref)
+                if diff:
+                    return diff
+
+        # Fallback to run.patch
+        return run.patch or ""
+
+    async def _generate_title(self, task, run, diff: str) -> str:
+        """Generate a PR title using LLM (fallback to heuristics)."""
+        # Fast, deterministic fallback first
+        if task.title and task.title.strip():
+            return task.title.strip()[:80]
+        if run.summary and run.summary.strip():
+            return run.summary.strip().splitlines()[0][:80]
+
+        llm_config = self._get_default_llm_config()
+        if not llm_config:
+            return "dursor: changes"
+
+        truncated_diff = diff[:8000] if diff else ""
+        system = "You write concise, descriptive GitHub Pull Request titles."
+        prompt = "\n".join(
+            [
+                "Generate a short PR title based on the following context.",
+                "",
+                "Rules:",
+                "- Title must be <= 72 characters",
+                "- Do not include trailing period",
+                "- Prefer imperative mood (e.g., 'Fix', 'Add', 'Update')",
+                "",
+                f"Task: {task.title or '(no task title)'}",
+                f"Run summary: {run.summary or '(no summary)'}",
+                "",
+                "Diff (truncated):",
+                "```diff",
+                truncated_diff,
+                "```",
+            ]
+        )
+        try:
+            llm_client = self.llm_router.get_client(llm_config)
+            title = await llm_client.generate(
+                messages=[{"role": "user", "content": prompt}],
+                system=system,
+            )
+            title = (title or "").strip().splitlines()[0].strip()
+            return (title[:72] or "dursor: changes").rstrip(".")
+        except Exception:
+            return "dursor: changes"
+
+    async def _generate_body(self, repo_obj: Repo, task, run, diff: str, title: str) -> str:
+        """Generate a PR body using LLM (fallback to existing simple description)."""
+        llm_config = self._get_default_llm_config()
+        if not llm_config:
+            # Reuse existing fallback format
+            fake_pr = PR(
+                id="",
+                task_id=task.id,
+                number=0,
+                url="",
+                branch=run.working_branch or "",
+                title=title,
+                body=None,
+                latest_commit=run.commit_sha or "",
+                status="open",
+                created_at=task.created_at,
+                updated_at=task.updated_at,
+            )
+            return self._generate_fallback_description(diff, fake_pr)
+
+        template: str | None
+        try:
+            template = await self._load_pr_template(repo_obj)
+        except Exception:
+            template = None
+
+        truncated_diff = diff[:10000] if diff else ""
+        system = "You generate clear and concise GitHub Pull Request descriptions."
+        prompt_parts = [
+            "Generate a Pull Request description.",
+            "",
+            "## Context",
+            f"Task: {task.title or '(no task title)'}",
+            f"Run summary: {run.summary or '(no summary)'}",
+            "",
+            "## Title",
+            title,
+            "",
+            "## Diff",
+            "```diff",
+            truncated_diff,
+            "```",
+        ]
+        if template:
+            prompt_parts.extend(
+                [
+                    "",
+                    "## Template",
+                    "Follow this template closely:",
+                    "",
+                    template,
+                ]
+            )
+        else:
+            prompt_parts.extend(
+                [
+                    "",
+                    "## Output format",
+                    "## Summary",
+                    "- 1-3 sentences",
+                    "",
+                    "## Changes",
+                    "- bullet points",
+                    "",
+                    "## Test Plan",
+                    "- checklist",
+                ]
+            )
+
+        prompt = "\n".join(prompt_parts)
+        try:
+            llm_client = self.llm_router.get_client(llm_config)
+            body = await llm_client.generate(
+                messages=[{"role": "user", "content": prompt}],
+                system=system,
+            )
+            body = (body or "").strip()
+            return body or f"Generated by dursor\n\n{run.summary or ''}"
+        except Exception:
+            fake_pr = PR(
+                id="",
+                task_id=task.id,
+                number=0,
+                url="",
+                branch=run.working_branch or "",
+                title=title,
+                body=None,
+                latest_commit=run.commit_sha or "",
+                status="open",
+                created_at=task.created_at,
+                updated_at=task.updated_at,
+            )
+            return self._generate_fallback_description(diff, fake_pr)
+
     async def create(self, task_id: str, data: PRCreate) -> PR:
         """Create a Pull Request from an already-pushed branch.
 
@@ -101,16 +276,41 @@ class PRService:
         if not repo_obj:
             raise ValueError(f"Repo not found: {task.repo_id}")
 
-        # Get run
-        run = await self.run_dao.get(data.selected_run_id)
+        # Select run
+        selected_run_id = data.selected_run_id
+        run = None
+        if selected_run_id:
+            run = await self.run_dao.get(selected_run_id)
+            if not run:
+                raise ValueError(f"Run not found: {selected_run_id}")
+        else:
+            runs = await self.run_dao.list(task_id)
+            # Prefer latest succeeded run with branch+commit
+            candidates = [
+                r
+                for r in runs
+                if r.status == "succeeded"
+                and r.working_branch
+                and r.commit_sha
+            ]
+            # If none, allow succeeded run with branch.
+            # (Older flows may not have commit_sha persisted.)
+            if not candidates:
+                candidates = [
+                    r for r in runs if r.status == "succeeded" and r.working_branch
+                ]
+            # Choose most recent by created_at
+            candidates.sort(key=lambda r: r.created_at, reverse=True)
+            run = candidates[0] if candidates else None
+
         if not run:
-            raise ValueError(f"Run not found: {data.selected_run_id}")
+            raise ValueError("No suitable run found for PR creation (need a succeeded run)")
 
         # Verify run has a branch and commit
         if not run.working_branch:
-            raise ValueError(f"Run has no working branch: {data.selected_run_id}")
+            raise ValueError(f"Run has no working branch: {run.id}")
         if not run.commit_sha:
-            raise ValueError(f"Run has no commits: {data.selected_run_id}")
+            raise ValueError(f"Run has no commits: {run.id}")
 
         # Parse GitHub info
         owner, repo_name = self._parse_github_url(repo_obj.repo_url)
@@ -128,17 +328,27 @@ class PRService:
                 if "403" in str(e) or "Write access" in str(e):
                     raise GitHubPermissionError(
                         f"GitHub App lacks write access to {owner}/{repo_name}. "
-                        "Please ensure the GitHub App has 'Contents' permission set to 'Read and write' "
+                        "Please ensure the GitHub App has 'Contents' permission set to "
+                        "'Read and write' "
                         "and is installed on this repository."
                     ) from e
                 raise
 
         # Create PR via GitHub API (branch is already pushed)
-        pr_body = data.body or f"Generated by dursor\n\n{run.summary or ''}"
+        diff = await self._get_diff_for_run(repo_obj, run)
+        title = data.title or await self._generate_title(task, run, diff)
+        pr_body = data.body or await self._generate_body(
+            repo_obj,
+            task,
+            run,
+            diff,
+            title,
+        )
+
         pr_data = await self.github_service.create_pull_request(
             owner=owner,
             repo=repo_name,
-            title=data.title,
+            title=title,
             head=run.working_branch,
             base=repo_obj.default_branch,
             body=pr_body,
@@ -150,8 +360,8 @@ class PRService:
             number=pr_data["number"],
             url=pr_data["html_url"],
             branch=run.working_branch,
-            title=data.title,
-            body=data.body,
+            title=title,
+            body=pr_body,
             latest_commit=run.commit_sha,
         )
 
@@ -241,7 +451,8 @@ class PRService:
             if "403" in str(e) or "Write access" in str(e):
                 raise GitHubPermissionError(
                     f"GitHub App lacks write access to {owner}/{repo_name}. "
-                    "Please ensure the GitHub App has 'Contents' permission set to 'Read and write' "
+                    "Please ensure the GitHub App has 'Contents' permission set to "
+                    "'Read and write' "
                     "and is installed on this repository."
                 ) from e
             raise
@@ -381,22 +592,21 @@ class PRService:
         """
         prompt = self._build_description_prompt(diff, template, task, pr)
 
-        # Generate with LLM using a default model
-        # In production, this could be configurable
+        llm_config = self._get_default_llm_config()
+        if not llm_config:
+            return self._generate_fallback_description(diff, pr)
+
         try:
-            config = LLMConfig(
-                provider=Provider.ANTHROPIC,
-                model_name="claude-3-haiku-20240307",
-                api_key="",  # Will be loaded from environment
+            llm_client = self.llm_router.get_client(llm_config)
+            system = (
+                "You are a helpful assistant that generates clear and concise PR descriptions."
             )
-            llm_client = self.llm_router.get_client(config)
             response = await llm_client.generate(
-                prompt=prompt,
-                system_prompt="You are a helpful assistant that generates clear and concise PR descriptions.",
+                messages=[{"role": "user", "content": prompt}],
+                system=system,
             )
-            return response
+            return (response or "").strip() or self._generate_fallback_description(diff, pr)
         except Exception:
-            # Fallback to a simple description if LLM fails
             return self._generate_fallback_description(diff, pr)
 
     def _build_description_prompt(

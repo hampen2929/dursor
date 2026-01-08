@@ -152,8 +152,8 @@ export interface PR {
 }
 
 export interface PRCreate {
-  selected_run_id: string;
-  title: string;
+  selected_run_id?: string;
+  title?: string;
   body?: string;
 }
 

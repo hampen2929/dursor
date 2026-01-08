@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { tasksApi, runsApi, prsApi } from '@/lib/api';
+import { tasksApi, runsApi } from '@/lib/api';
 import type { Message, ModelProfile, ExecutorType, Run, RunStatus } from '@/types';
 import { Button } from './ui/Button';
-import { Input, Textarea } from './ui/Input';
 import { DiffViewer } from './DiffViewer';
 import { useToast } from './ui/Toast';
 import { getShortcutText, isModifierPressed } from '@/lib/platform';
@@ -21,7 +20,6 @@ import {
   ExclamationTriangleIcon,
   ClockIcon,
   ArrowPathIcon,
-  ArrowTopRightOnSquareIcon,
   DocumentDuplicateIcon,
   ChevronDownIcon,
   ChevronUpIcon,
@@ -35,7 +33,6 @@ interface ChatCodeViewProps {
   executorType?: ExecutorType;
   initialModelIds?: string[];
   onRunsCreated: () => void;
-  onPRCreated: () => void;
 }
 
 type RunTab = 'summary' | 'diff' | 'logs';
@@ -54,7 +51,6 @@ export function ChatCodeView({
   executorType = 'patch_agent',
   initialModelIds,
   onRunsCreated,
-  onPRCreated,
 }: ChatCodeViewProps) {
   const [input, setInput] = useState('');
   const [selectedModels, setSelectedModels] = useState<string[]>(initialModelIds || []);
@@ -281,12 +277,10 @@ export function ChatCodeView({
                   <RunResultCard
                     key={run.id}
                     run={run}
-                    taskId={taskId}
                     expanded={expandedRuns.has(run.id)}
                     onToggleExpand={() => toggleRunExpanded(run.id)}
                     activeTab={getRunTab(run.id)}
                     onTabChange={(tab) => setRunTab(run.id, tab)}
-                    onPRCreated={onPRCreated}
                   />
                 ))}
               </div>
@@ -395,56 +389,19 @@ export function ChatCodeView({
 // Inline Run Result Card Component
 interface RunResultCardProps {
   run: Run;
-  taskId: string;
   expanded: boolean;
   onToggleExpand: () => void;
   activeTab: RunTab;
   onTabChange: (tab: RunTab) => void;
-  onPRCreated: () => void;
 }
 
 function RunResultCard({
   run,
-  taskId,
   expanded,
   onToggleExpand,
   activeTab,
   onTabChange,
-  onPRCreated,
 }: RunResultCardProps) {
-  const [showPRForm, setShowPRForm] = useState(false);
-  const [prTitle, setPRTitle] = useState('');
-  const [prBody, setPRBody] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [prResult, setPRResult] = useState<{ url: string } | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const { success, error } = useToast();
-
-  const handleCreatePR = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prTitle.trim()) return;
-
-    setCreating(true);
-    setFormError(null);
-
-    try {
-      const result = await prsApi.create(taskId, {
-        selected_run_id: run.id,
-        title: prTitle.trim(),
-        body: prBody.trim() || undefined,
-      });
-      setPRResult(result);
-      onPRCreated();
-      success('Pull request created successfully!');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create PR';
-      setFormError(message);
-      error(message);
-    } finally {
-      setCreating(false);
-    }
-  };
-
   const getStatusBadge = () => {
     switch (run.status) {
       case 'succeeded':
@@ -582,77 +539,6 @@ function RunResultCard({
           {/* Succeeded State */}
           {run.status === 'succeeded' && (
             <>
-              {/* PR Actions */}
-              {run.patch && !prResult && (
-                <div className="px-4 pt-3 flex justify-end">
-                  <Button
-                    variant="success"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowPRForm(!showPRForm);
-                    }}
-                  >
-                    {showPRForm ? 'Cancel' : 'Create PR'}
-                  </Button>
-                </div>
-              )}
-
-              {/* PR Form */}
-              {showPRForm && (
-                <div className="mx-4 mt-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                  {prResult ? (
-                    <div className="flex flex-col items-center text-center py-2">
-                      <CheckCircleIcon className="w-8 h-8 text-green-400 mb-2" />
-                      <p className="text-green-400 font-medium text-sm mb-2">PR created!</p>
-                      <a
-                        href={prResult.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-blue-400 hover:text-blue-300 transition-colors text-sm"
-                      >
-                        View on GitHub
-                        <ArrowTopRightOnSquareIcon className="w-4 h-4" />
-                      </a>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleCreatePR} className="space-y-2">
-                      <Input
-                        value={prTitle}
-                        onChange={(e) => setPRTitle(e.target.value)}
-                        placeholder="PR title"
-                        error={formError || undefined}
-                      />
-                      <Textarea
-                        value={prBody}
-                        onChange={(e) => setPRBody(e.target.value)}
-                        placeholder="PR description (optional)"
-                        rows={2}
-                      />
-                      <div className="flex gap-2">
-                        <Button
-                          type="submit"
-                          variant="success"
-                          size="sm"
-                          disabled={!prTitle.trim()}
-                          isLoading={creating}
-                        >
-                          Create PR
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setShowPRForm(false)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </form>
-                  )}
-                </div>
-              )}
-
               {/* Tabs */}
               <div className="flex border-b border-gray-700/50 mt-3 px-4" role="tablist">
                 {runTabConfig.map((tab) => (

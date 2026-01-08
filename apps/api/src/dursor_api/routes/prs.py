@@ -1,9 +1,9 @@
 """Pull Request routes."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
-from dursor_api.domain.models import PR, PRCreate, PRCreated, PRUpdate, PRUpdated
 from dursor_api.dependencies import get_pr_service
+from dursor_api.domain.models import PR, PRCreate, PRCreated, PRUpdate, PRUpdated
 from dursor_api.services.pr_service import GitHubPermissionError, PRService
 
 router = APIRouter(tags=["prs"])
@@ -12,7 +12,7 @@ router = APIRouter(tags=["prs"])
 @router.post("/tasks/{task_id}/prs", response_model=PRCreated, status_code=201)
 async def create_pr(
     task_id: str,
-    data: PRCreate,
+    data: PRCreate = Body(default_factory=PRCreate),
     pr_service: PRService = Depends(get_pr_service),
 ) -> PRCreated:
     """Create a Pull Request from a run."""

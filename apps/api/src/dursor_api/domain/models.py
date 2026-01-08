@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 
 from dursor_api.domain.enums import ExecutorType, MessageRole, Provider, RunStatus
 
-
 # ============================================================
 # Model Profile
 # ============================================================
@@ -130,7 +129,10 @@ class RunCreate(BaseModel):
     """Request for creating Runs."""
 
     instruction: str = Field(..., description="Natural language instruction")
-    model_ids: list[str] | None = Field(None, description="List of model profile IDs to run (required for patch_agent)")
+    model_ids: list[str] | None = Field(
+        None,
+        description="List of model profile IDs to run (required for patch_agent)",
+    )
     base_ref: str | None = Field(None, description="Base branch/commit")
     executor_type: ExecutorType = Field(
         default=ExecutorType.PATCH_AGENT,
@@ -199,9 +201,15 @@ class Run(BaseModel):
 class PRCreate(BaseModel):
     """Request for creating a PR."""
 
-    selected_run_id: str = Field(..., description="ID of the run to use for PR")
-    title: str
-    body: str | None = None
+    # NOTE: As of v0.1, PR creation can be fully automated by the backend.
+    # If fields are omitted, the server will:
+    # - choose a suitable run automatically (latest succeeded run with a pushed branch/commit)
+    # - generate title/body using an available LLM configuration
+    selected_run_id: str | None = Field(
+        default=None, description="ID of the run to use for PR (optional; server can auto-select)"
+    )
+    title: str | None = Field(default=None, description="PR title (optional; server can generate)")
+    body: str | None = Field(default=None, description="PR body (optional; server can generate)")
 
 
 class PRUpdate(BaseModel):
