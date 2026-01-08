@@ -75,7 +75,19 @@ class WorktreeService:
 
             # Fetch to ensure we have latest refs
             try:
-                source_repo.remotes.origin.fetch()
+                # Unshallow if this is a shallow clone to get full history
+                if source_repo.head.is_valid():
+                    is_shallow = source_repo.git.rev_parse("--is-shallow-repository")
+                    if is_shallow == "true":
+                        try:
+                            source_repo.git.fetch("--unshallow", "origin")
+                        except git.GitCommandError:
+                            # May fail if already unshallowed or other issues
+                            source_repo.remotes.origin.fetch()
+                    else:
+                        source_repo.remotes.origin.fetch()
+                else:
+                    source_repo.remotes.origin.fetch()
             except Exception:
                 # Ignore fetch errors (might be offline)
                 pass

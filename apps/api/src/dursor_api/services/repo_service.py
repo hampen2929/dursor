@@ -123,12 +123,40 @@ class RepoService:
         # Check if already cloned
         existing = await self.find_by_url(repo_url)
         if existing:
-            # Optionally update to the requested branch
-            if data.branch:
-                workspace_path = Path(existing.workspace_path)
-                if workspace_path.exists():
-                    repo = git.Repo(workspace_path)
-                    repo.git.checkout(data.branch)
+            workspace_path = Path(existing.workspace_path)
+            if workspace_path.exists():
+                repo = git.Repo(workspace_path)
+                branch = data.branch or existing.default_branch
+
+                # Fetch latest changes from origin
+                try:
+                    # Unshallow if this is a shallow clone
+                    if repo.head.is_valid() and repo.git.rev_parse("--is-shallow-repository") == "true":
+                        try:
+                            repo.git.fetch("--unshallow", "origin")
+                        except git.GitCommandError:
+                            # May fail if already unshallowed or other issues
+                            repo.remotes.origin.fetch()
+                    else:
+                        repo.remotes.origin.fetch()
+                except Exception:
+                    # Ignore fetch errors (might be offline)
+                    pass
+
+                # Checkout and reset to origin
+                try:
+                    repo.git.checkout(branch)
+                    try:
+                        repo.git.reset("--hard", f"origin/{branch}")
+                    except git.GitCommandError:
+                        pass
+                except git.GitCommandError:
+                    # Branch might not exist locally, create from origin
+                    try:
+                        repo.git.checkout("-b", branch, f"origin/{branch}")
+                    except git.GitCommandError:
+                        pass
+
             return existing
 
         # Ensure workspaces directory is writable before cloning
