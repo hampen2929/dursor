@@ -125,21 +125,27 @@ class GitService:
 
         def _create_worktree():
             source_repo = git.Repo(repo.workspace_path)
+            remote_ref = f"origin/{base_branch}"
 
-            # Fetch to ensure we have latest refs from remote
+            # Fetch the latest state of the base branch from remote
+            # This is critical for shallow clones (depth=1) which don't have full history
             try:
-                source_repo.remotes.origin.fetch()
+                # First, try to unshallow the repository if it's a shallow clone
+                # This ensures we have access to the full remote state
+                try:
+                    source_repo.git.fetch("--unshallow", "origin", base_branch)
+                except git.GitCommandError:
+                    # Not a shallow clone or already unshallowed, do a normal fetch
+                    # Explicitly fetch the base branch to ensure we have the latest
+                    source_repo.git.fetch("origin", base_branch)
             except Exception:
                 # Ignore fetch errors (might be offline)
                 pass
 
-            # Determine the base ref to use for worktree creation
-            # Prefer origin/{base_branch} to ensure we use the latest remote state
-            remote_ref = f"origin/{base_branch}"
+            # Verify remote ref exists and use it for worktree creation
             base_ref_to_use = base_branch  # fallback
-
             try:
-                # Check if remote ref exists
+                # Check if remote ref exists after fetch
                 source_repo.git.rev_parse("--verify", remote_ref)
                 # Remote ref exists, use it directly for worktree creation
                 base_ref_to_use = remote_ref
@@ -309,9 +315,14 @@ class GitService:
             try:
                 repo = git.Repo(worktree_path)
 
-                # Fetch latest from origin
+                # Fetch the latest state of the base branch from remote
+                # Handle shallow clones by unshallowing first
                 try:
-                    repo.remotes.origin.fetch()
+                    try:
+                        repo.git.fetch("--unshallow", "origin", base_branch)
+                    except git.GitCommandError:
+                        # Not a shallow clone or already unshallowed
+                        repo.git.fetch("origin", base_branch)
                 except Exception:
                     # Ignore fetch errors (might be offline)
                     pass
