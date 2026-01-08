@@ -33,12 +33,6 @@ Please include the following information in your report:
 - Proof-of-concept or exploit code (if possible)
 - Impact of the issue, including how an attacker might exploit it
 
-### Response Timeline
-
-- **Initial Response**: Within 48 hours
-- **Status Update**: Within 7 days
-- **Resolution Target**: Within 30 days (depending on complexity)
-
 ### What to Expect
 
 1. **Acknowledgment**: You will receive an acknowledgment of your report within 48 hours
