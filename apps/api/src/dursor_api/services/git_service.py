@@ -105,6 +105,7 @@ class GitService:
         base_branch: str,
         run_id: str,
         branch_prefix: str | None = None,
+        auth_url: str | None = None,
     ) -> WorktreeInfo:
         """Create a new git worktree for the run.
 
@@ -113,6 +114,7 @@ class GitService:
             base_branch: Base branch to create worktree from.
             run_id: Run ID for naming.
             branch_prefix: Optional branch prefix for the new work branch.
+            auth_url: Optional authenticated URL for fetching (required for private repos).
 
         Returns:
             WorktreeInfo with path and branch information.
@@ -125,29 +127,55 @@ class GitService:
 
         def _create_worktree():
             source_repo = git.Repo(repo.workspace_path)
+            remote_ref = f"origin/{base_branch}"
 
-            # Fetch to ensure we have latest refs
-            try:
-                source_repo.remotes.origin.fetch()
-            except Exception:
-                # Ignore fetch errors (might be offline)
-                pass
-
-            # Ensure base branch exists locally
-            try:
-                source_repo.git.checkout(base_branch)
-            except git.GitCommandError:
+            # Save original remote URL to restore later
+            original_url = None
+            if auth_url:
                 try:
-                    source_repo.git.checkout("-b", base_branch, f"origin/{base_branch}")
-                except git.GitCommandError:
+                    original_url = source_repo.remotes.origin.url
+                    source_repo.remotes.origin.set_url(auth_url)
+                except Exception:
                     pass
 
-            # Create worktree with new branch
+            try:
+                # Fetch the latest state of the base branch from remote
+                # This is critical for shallow clones (depth=1)
+                try:
+                    # First, try to unshallow the repository if it's a shallow clone
+                    try:
+                        source_repo.git.fetch("--unshallow", "origin", base_branch)
+                    except git.GitCommandError:
+                        # Not a shallow clone or already unshallowed
+                        source_repo.git.fetch("origin", base_branch)
+                except Exception:
+                    # Fetch failed - might be offline or auth issue
+                    pass
+            finally:
+                # Restore original remote URL
+                if original_url:
+                    try:
+                        source_repo.remotes.origin.set_url(original_url)
+                    except Exception:
+                        pass
+
+            # Verify remote ref exists and use it for worktree creation
+            base_ref_to_use = base_branch  # fallback
+            try:
+                # Check if remote ref exists after fetch
+                source_repo.git.rev_parse("--verify", remote_ref)
+                # Remote ref exists, use it directly for worktree creation
+                base_ref_to_use = remote_ref
+            except git.GitCommandError:
+                # Remote ref doesn't exist, fall back to local branch
+                pass
+
+            # Create worktree with new branch directly from the remote ref (latest state)
             source_repo.git.worktree(
                 "add",
                 "-b", branch_name,
                 str(worktree_path),
-                base_branch,
+                base_ref_to_use,
             )
 
             return WorktreeInfo(
@@ -282,6 +310,101 @@ class GitService:
 
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _check)
+
+    async def sync_worktree_with_base(
+        self,
+        worktree_path: Path,
+        base_branch: str,
+        auth_url: str | None = None,
+    ) -> bool:
+        """Sync a worktree with the latest state of the base branch.
+
+        This method fetches the latest from remote and rebases the worktree
+        branch on top of the updated base branch.
+
+        Args:
+            worktree_path: Path to the worktree.
+            base_branch: Base branch to sync with.
+            auth_url: Optional authenticated URL for fetching (required for private repos).
+
+        Returns:
+            True if sync was successful, False otherwise.
+        """
+        def _sync():
+            try:
+                repo = git.Repo(worktree_path)
+
+                # Save original remote URL to restore later
+                original_url = None
+                if auth_url:
+                    try:
+                        original_url = repo.remotes.origin.url
+                        repo.remotes.origin.set_url(auth_url)
+                    except Exception:
+                        pass
+
+                try:
+                    # Fetch the latest state of the base branch from remote
+                    # Handle shallow clones by unshallowing first
+                    try:
+                        try:
+                            repo.git.fetch("--unshallow", "origin", base_branch)
+                        except git.GitCommandError:
+                            # Not a shallow clone or already unshallowed
+                            repo.git.fetch("origin", base_branch)
+                    except Exception:
+                        # Fetch failed - might be offline or auth issue
+                        pass
+                finally:
+                    # Restore original remote URL
+                    if original_url:
+                        try:
+                            repo.remotes.origin.set_url(original_url)
+                        except Exception:
+                            pass
+
+                # Determine the remote ref
+                remote_ref = f"origin/{base_branch}"
+
+                # Check if there are uncommitted changes
+                if repo.is_dirty(untracked_files=True):
+                    # Stash changes before rebase
+                    repo.git.stash("push", "-m", "dursor-auto-stash")
+                    had_stash = True
+                else:
+                    had_stash = False
+
+                try:
+                    # Rebase current branch on top of the latest base
+                    repo.git.rebase(remote_ref)
+                except git.GitCommandError:
+                    # Rebase failed, abort and return False
+                    try:
+                        repo.git.rebase("--abort")
+                    except git.GitCommandError:
+                        pass
+                    # Restore stash if we had one
+                    if had_stash:
+                        try:
+                            repo.git.stash("pop")
+                        except git.GitCommandError:
+                            pass
+                    return False
+
+                # Restore stash if we had one
+                if had_stash:
+                    try:
+                        repo.git.stash("pop")
+                    except git.GitCommandError:
+                        # Stash pop might fail due to conflicts, leave stash intact
+                        pass
+
+                return True
+            except Exception:
+                return False
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _sync)
 
     # ============================================================
     # Change Management
