@@ -215,12 +215,18 @@ class PRCreate(BaseModel):
     selected_run_id: str = Field(..., description="ID of the run to use for PR")
     title: str
     body: str | None = None
+    template_path: str | None = Field(
+        None, description="Path to specific PR template to use (optional)"
+    )
 
 
 class PRCreateAuto(BaseModel):
     """Request for auto-generating PR title and body using AI."""
 
     selected_run_id: str = Field(..., description="ID of the run to use for PR")
+    template_path: str | None = Field(
+        None, description="Path to specific PR template to use (optional)"
+    )
 
 
 class PRUpdate(BaseModel):
@@ -533,9 +539,7 @@ class TaskBreakdownResponse(BaseModel):
     tasks: list[BrokenDownTask] = Field(default_factory=list, description="Broken down tasks")
     summary: str | None = Field(None, description="Summary of breakdown")
     original_content: str = Field(..., description="Original hearing content")
-    codebase_analysis: CodebaseAnalysis | None = Field(
-        None, description="Codebase analysis result"
-    )
+    codebase_analysis: CodebaseAnalysis | None = Field(None, description="Codebase analysis result")
     error: str | None = Field(None, description="Error message if failed")
 
 
@@ -551,3 +555,22 @@ class TaskBulkCreated(BaseModel):
 
     created_tasks: list[Task] = Field(..., description="Created tasks")
     count: int = Field(..., description="Number of tasks created")
+
+
+# ============================================================
+# PR Template
+# ============================================================
+
+
+class PRTemplateInfo(BaseModel):
+    """Information about a PR template."""
+
+    path: str = Field(..., description="Path to the template file")
+    filename: str = Field(..., description="Template filename")
+    source: str = Field(
+        ..., description="Source location (github_single, github_multi, docs, root)"
+    )
+    is_default_candidate: bool = Field(
+        ..., description="Whether this template is a candidate for default selection"
+    )
+    preview: str | None = Field(None, description="First 200 characters of the template")
