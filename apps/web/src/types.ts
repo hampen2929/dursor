@@ -336,6 +336,7 @@ export interface TaskWithKanbanStatus extends Task {
 export interface KanbanColumn {
   status: TaskKanbanStatus;
   tasks: TaskWithKanbanStatus[];
+  backlog_items: BacklogItem[];  // Only populated for 'backlog' column
   count: number;
 }
 
@@ -345,7 +346,7 @@ export interface KanbanBoard {
 }
 
 // Backlog
-export type BacklogStatus = 'draft' | 'ready' | 'in_progress' | 'done';
+export type BacklogStatus = 'draft' | 'ready';
 
 export interface SubTask {
   id: string;

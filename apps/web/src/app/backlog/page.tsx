@@ -15,8 +15,6 @@ const statusFilters: { value: BacklogStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'draft', label: 'Draft' },
   { value: 'ready', label: 'Ready' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'done', label: 'Done' },
 ];
 
 export default function BacklogPage() {

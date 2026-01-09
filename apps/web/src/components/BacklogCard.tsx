@@ -63,8 +63,6 @@ const sizeConfig: Record<EstimatedSize, { label: string; color: string }> = {
 const statusConfig: Record<BacklogStatus, { label: string; color: string }> = {
   draft: { label: 'Draft', color: 'bg-gray-700 text-gray-300' },
   ready: { label: 'Ready', color: 'bg-blue-900/50 text-blue-300' },
-  in_progress: { label: 'In Progress', color: 'bg-purple-900/50 text-purple-300' },
-  done: { label: 'Done', color: 'bg-green-900/50 text-green-300' },
 };
 
 export default function BacklogCard({

@@ -1,6 +1,7 @@
 'use client';
 
 import { KanbanCard } from './KanbanCard';
+import { KanbanBacklogItemCard } from './KanbanBacklogItemCard';
 import type { KanbanColumn as KanbanColumnType, TaskKanbanStatus } from '@/types';
 import {
   InboxIcon,
@@ -18,6 +19,7 @@ interface KanbanColumnProps {
   onMoveToBacklog: (taskId: string) => void;
   onArchive: (taskId: string) => void;
   onUnarchive: (taskId: string) => void;
+  onStartWork: (itemId: string) => void;
 }
 
 const COLUMN_CONFIG: Record<
@@ -80,9 +82,13 @@ export function KanbanColumn({
   onMoveToBacklog,
   onArchive,
   onUnarchive,
+  onStartWork,
 }: KanbanColumnProps) {
   const config = COLUMN_CONFIG[column.status];
   const Icon = config.icon;
+
+  const hasBacklogItems = column.backlog_items && column.backlog_items.length > 0;
+  const hasItems = column.tasks.length > 0 || hasBacklogItems;
 
   return (
     <div className="flex-shrink-0 w-80 bg-gray-900 rounded-lg flex flex-col">
@@ -98,6 +104,17 @@ export function KanbanColumn({
       </div>
 
       <div className="p-2 space-y-2 flex-1 overflow-y-auto max-h-[calc(100vh-200px)]">
+        {/* Show backlog items first (only in backlog column) */}
+        {hasBacklogItems &&
+          column.backlog_items.map((item) => (
+            <KanbanBacklogItemCard
+              key={`backlog-${item.id}`}
+              item={item}
+              onStartWork={onStartWork}
+            />
+          ))}
+
+        {/* Show tasks */}
         {column.tasks.map((task) => (
           <KanbanCard
             key={task.id}
@@ -109,7 +126,8 @@ export function KanbanColumn({
             onUnarchive={onUnarchive}
           />
         ))}
-        {column.tasks.length === 0 && (
+
+        {!hasItems && (
           <div className="text-center py-8 text-gray-600 text-sm">No tasks</div>
         )}
       </div>

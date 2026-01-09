@@ -1,6 +1,6 @@
 """Kanban board service for task status management."""
 
-from dursor_api.domain.enums import TaskBaseKanbanStatus, TaskKanbanStatus
+from dursor_api.domain.enums import BacklogStatus, TaskBaseKanbanStatus, TaskKanbanStatus
 from dursor_api.domain.models import (
     PR,
     KanbanBoard,
@@ -9,7 +9,7 @@ from dursor_api.domain.models import (
     TaskWithKanbanStatus,
 )
 from dursor_api.services.github_service import GitHubService
-from dursor_api.storage.dao import PRDAO, RunDAO, TaskDAO
+from dursor_api.storage.dao import PRDAO, BacklogDAO, RunDAO, TaskDAO
 
 
 class KanbanService:
@@ -27,11 +27,13 @@ class KanbanService:
         task_dao: TaskDAO,
         run_dao: RunDAO,
         pr_dao: PRDAO,
+        backlog_dao: BacklogDAO,
         github_service: GitHubService,
     ):
         self.task_dao = task_dao
         self.run_dao = run_dao
         self.pr_dao = pr_dao
+        self.backlog_dao = backlog_dao
         self.github_service = github_service
 
     def _compute_kanban_status(
@@ -100,12 +102,32 @@ class KanbanService:
             )
             columns[computed_status].append(task_with_status)
 
+        # Get ready backlog items for backlog column (only those not linked to a task)
+        all_ready_items = await self.backlog_dao.list(
+            repo_id=repo_id, status=BacklogStatus.READY
+        )
+        ready_backlog_items = [item for item in all_ready_items if item.task_id is None]
+
+        # Build columns with backlog items for backlog column only
+        kanban_columns = []
+        total_count = 0
+        for status in TaskKanbanStatus:
+            tasks = columns[status]
+            backlog_items = ready_backlog_items if status == TaskKanbanStatus.BACKLOG else []
+            count = len(tasks) + len(backlog_items)
+            total_count += count
+            kanban_columns.append(
+                KanbanColumn(
+                    status=status,
+                    tasks=tasks,
+                    backlog_items=backlog_items,
+                    count=count,
+                )
+            )
+
         return KanbanBoard(
-            columns=[
-                KanbanColumn(status=status, tasks=tasks, count=len(tasks))
-                for status, tasks in columns.items()
-            ],
-            total_tasks=sum(len(tasks) for tasks in columns.values()),
+            columns=kanban_columns,
+            total_tasks=total_count,
         )
 
     async def move_to_todo(self, task_id: str) -> Task:

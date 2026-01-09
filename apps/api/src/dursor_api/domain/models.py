@@ -111,11 +111,12 @@ class TaskWithKanbanStatus(Task):
 
 
 class KanbanColumn(BaseModel):
-    """Kanban column with tasks."""
+    """Kanban column with tasks and backlog items."""
 
     status: TaskKanbanStatus
     tasks: list[TaskWithKanbanStatus]
-    count: int
+    backlog_items: list["BacklogItem"] = []  # Only populated for 'backlog' column
+    count: int  # Total count of tasks + backlog_items
 
 
 class KanbanBoard(BaseModel):

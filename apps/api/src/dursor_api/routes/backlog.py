@@ -187,10 +187,9 @@ async def start_work_on_backlog_item(
         title=item.title,
     )
 
-    # Update backlog item with task reference and status
+    # Link backlog item to the created task
     await backlog_dao.update(
         id=item_id,
-        status=BacklogStatus.IN_PROGRESS,
         task_id=task.id,
     )
 

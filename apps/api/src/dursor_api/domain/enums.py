@@ -106,7 +106,5 @@ class PRStatus(str, Enum):
 class BacklogStatus(str, Enum):
     """Backlog item status."""
 
-    DRAFT = "draft"  # Just created, not yet refined
-    READY = "ready"  # Ready to be worked on
-    IN_PROGRESS = "in_progress"  # Task created and work started
-    DONE = "done"  # Completed
+    DRAFT = "draft"  # Just created, can be edited and reviewed
+    READY = "ready"  # Ready to be displayed on Kanban Backlog column

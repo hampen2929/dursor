@@ -177,5 +177,6 @@ async def get_kanban_service() -> KanbanService:
     task_dao = await get_task_dao()
     run_dao = await get_run_dao()
     pr_dao = await get_pr_dao()
+    backlog_dao = await get_backlog_dao()
     github_service = await get_github_service()
-    return KanbanService(task_dao, run_dao, pr_dao, github_service)
+    return KanbanService(task_dao, run_dao, pr_dao, backlog_dao, github_service)

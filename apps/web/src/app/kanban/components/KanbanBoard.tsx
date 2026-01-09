@@ -1,7 +1,7 @@
 'use client';
 
 import { KanbanColumn } from './KanbanColumn';
-import { kanbanApi } from '@/lib/api';
+import { kanbanApi, backlogApi } from '@/lib/api';
 import type { KanbanBoard as KanbanBoardType, TaskKanbanStatus } from '@/types';
 import { useToast } from '@/components/ui/Toast';
 
@@ -26,7 +26,7 @@ export function KanbanBoard({ board, onUpdate }: KanbanBoardProps) {
   // Get columns in the correct order
   const orderedColumns = COLUMN_ORDER.map((status) => {
     const column = board.columns.find((c) => c.status === status);
-    return column ?? { status, tasks: [], count: 0 };
+    return column ?? { status, tasks: [], backlog_items: [], count: 0 };
   });
 
   const handleMoveToTodo = async (taskId: string) => {
@@ -69,6 +69,16 @@ export function KanbanBoard({ board, onUpdate }: KanbanBoardProps) {
     }
   };
 
+  const handleStartWork = async (itemId: string) => {
+    try {
+      await backlogApi.startWork(itemId);
+      success('Task created from backlog item');
+      onUpdate();
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : 'Failed to start work');
+    }
+  };
+
   return (
     <div className="flex gap-4 h-full">
       {orderedColumns.map((column) => (
@@ -79,6 +89,7 @@ export function KanbanBoard({ board, onUpdate }: KanbanBoardProps) {
           onMoveToBacklog={handleMoveToBacklog}
           onArchive={handleArchive}
           onUnarchive={handleUnarchive}
+          onStartWork={handleStartWork}
         />
       ))}
     </div>
