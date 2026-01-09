@@ -232,9 +232,9 @@ sequenceDiagram
 **並列実行の活用:**
 ```mermaid
 flowchart TD
-    T[タスク] --> R1[Run: Claude 3.5 Sonnet]
-    T --> R2[Run: GPT-4]
-    T --> R3[Run: Gemini Pro]
+    T[タスク] --> R1[Run: Claude Code]
+    T --> R2[Run: Codex CLI]
+    T --> R3[Run: Gemini CLI]
     R1 --> C[結果を比較]
     R2 --> C
     R3 --> C
