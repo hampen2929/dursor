@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from dursor_api.dependencies import get_breakdown_service
@@ -20,25 +20,50 @@ class BreakdownLogsResponse(BaseModel):
     total_lines: int
 
 
-@router.post("", response_model=TaskBreakdownResponse, status_code=201)
-async def breakdown_tasks(
+@router.post("", response_model=TaskBreakdownResponse, status_code=202)
+async def start_breakdown(
     request: TaskBreakdownRequest,
     breakdown_service: BreakdownService = Depends(get_breakdown_service),
 ) -> TaskBreakdownResponse:
-    """Break down hearing content into development tasks.
+    """Start task breakdown in background.
 
-    This endpoint uses an AI agent (Claude Code, Codex, or Gemini CLI)
-    to analyze the codebase and decompose the provided hearing content
-    into specific, actionable development tasks.
+    This endpoint starts an AI agent (Claude Code, Codex, or Gemini CLI)
+    to analyze the codebase and decompose the provided content into tasks.
+    The breakdown runs in the background and returns immediately with a
+    breakdown_id that can be used to poll for results.
 
     Args:
         request: Breakdown request with content and executor type.
         breakdown_service: Breakdown service instance.
 
     Returns:
-        TaskBreakdownResponse with decomposed tasks.
+        TaskBreakdownResponse with RUNNING status and breakdown_id.
     """
-    return await breakdown_service.breakdown(request)
+    return await breakdown_service.start_breakdown(request)
+
+
+@router.get("/{breakdown_id}", response_model=TaskBreakdownResponse)
+async def get_breakdown_result(
+    breakdown_id: str,
+    breakdown_service: BreakdownService = Depends(get_breakdown_service),
+) -> TaskBreakdownResponse:
+    """Get breakdown result by ID.
+
+    Poll this endpoint to check breakdown status and get results.
+    The status will be RUNNING while in progress, SUCCEEDED when complete,
+    or FAILED if an error occurred.
+
+    Args:
+        breakdown_id: Breakdown session ID.
+        breakdown_service: Breakdown service instance.
+
+    Returns:
+        TaskBreakdownResponse with current status and results.
+    """
+    result = await breakdown_service.get_result(breakdown_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Breakdown not found")
+    return result
 
 
 @router.get("/{breakdown_id}/logs", response_model=BreakdownLogsResponse)

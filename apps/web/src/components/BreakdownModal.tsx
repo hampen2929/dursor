@@ -175,47 +175,60 @@ export default function BreakdownModal({ isOpen, onClose }: BreakdownModalProps)
         branch: selectedBranch,
       });
 
-      // Start breakdown analysis
-      const result = await breakdownApi.analyze({
+      // Start breakdown analysis (returns immediately with RUNNING status)
+      const initialResult = await breakdownApi.analyze({
         content: content.trim(),
         executor_type: executorType,
         repo_id: repoResult.id,
       });
 
-      // Start streaming logs
-      cleanupRef.current = breakdownApi.streamLogs(result.breakdown_id, {
+      // Check for immediate failure
+      if (initialResult.status === 'failed') {
+        setError(initialResult.error || 'Breakdown failed');
+        setPhase('input');
+        setIsAnalyzing(false);
+        return;
+      }
+
+      const breakdownId = initialResult.breakdown_id;
+
+      // Start streaming logs and poll for result
+      cleanupRef.current = breakdownApi.streamLogs(breakdownId, {
         onLine: (line) => {
           setLogs((prev) => [...prev, line]);
         },
-        onComplete: () => {
-          // Logs completed - result should be ready
+        onComplete: async () => {
+          // Logs completed - fetch final result
+          try {
+            const finalResult = await breakdownApi.getResult(breakdownId);
+            setBreakdownResult(finalResult);
+
+            if (finalResult.status === 'succeeded') {
+              setPhase('result');
+              setSelectedTasks(new Set(finalResult.tasks.map((_, i) => i)));
+            } else if (finalResult.status === 'failed') {
+              setError(finalResult.error || 'Breakdown failed');
+              setPhase('input');
+            }
+          } catch (err) {
+            console.error('Failed to get result:', err);
+            setError('Failed to get breakdown result');
+            setPhase('input');
+          } finally {
+            setIsAnalyzing(false);
+          }
         },
         onError: (err) => {
           console.error('Log streaming error:', err);
+          setError(err.message);
+          setPhase('input');
+          setIsAnalyzing(false);
         },
       });
-
-      // Poll for result (breakdown might still be running)
-      // Wait a bit for the analysis to complete
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // The result is returned immediately but might have running status
-      // For simplicity, we'll use the initial result
-      setBreakdownResult(result);
-
-      if (result.status === 'succeeded') {
-        setPhase('result');
-        // Select all tasks by default
-        setSelectedTasks(new Set(result.tasks.map((_, i) => i)));
-      } else if (result.status === 'failed') {
-        setError(result.error || 'Breakdown failed');
-        setPhase('input');
-      }
     } catch (err) {
       console.error('Breakdown error:', err);
       setError(err instanceof Error ? err.message : 'Failed to analyze');
       setPhase('input');
-    } finally {
       setIsAnalyzing(false);
     }
   };

@@ -6,6 +6,7 @@ a codebase and break down hearing content into actionable development tasks.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -14,7 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from dursor_api.config import settings
-from dursor_api.domain.enums import BreakdownStatus, BrokenDownTaskType, EstimatedSize, ExecutorType
+from dursor_api.domain.enums import (
+    BreakdownStatus,
+    BrokenDownTaskType,
+    EstimatedSize,
+    ExecutorType,
+)
 from dursor_api.domain.models import (
     BrokenDownTask,
     CodebaseAnalysis,
@@ -36,14 +42,14 @@ BREAKDOWN_RESULT_FILE = ".dursor-breakdown.json"
 # Prompt template for task breakdown
 BREAKDOWN_INSTRUCTION_TEMPLATE = """
 You are a software development task decomposition expert.
-Break down the following hearing content into specific development tasks.
+Break down the following requirements into specific development tasks.
 
 ## Important: Codebase Analysis
 1. First, review the codebase in this repository
 2. Understand existing implementation patterns, architecture, and naming conventions
 3. Show specifically how each task relates to existing code
 
-## Hearing Content
+## Requirements
 {content}
 
 ## Output Format
@@ -89,9 +95,9 @@ class BreakdownService:
     """Service for breaking down hearing content into development tasks.
 
     This service:
-    1. Prepares a temporary worktree for code analysis
+    1. Starts breakdown in background (non-blocking)
     2. Runs an executor to analyze codebase and decompose tasks
-    3. Parses the result and returns structured tasks
+    3. Stores results for later retrieval
     """
 
     def __init__(
@@ -107,6 +113,9 @@ class BreakdownService:
         """
         self.repo_dao = repo_dao
         self.output_manager = output_manager
+
+        # In-memory storage for breakdown results
+        self._results: dict[str, TaskBreakdownResponse] = {}
 
         # Initialize executors
         self._claude_executor = ClaudeCodeExecutor(
@@ -140,19 +149,11 @@ class BreakdownService:
     def _get_executor(
         self, executor_type: ExecutorType
     ) -> ClaudeCodeExecutor | CodexExecutor | GeminiExecutor:
-        """Get executor for the given type.
-
-        Args:
-            executor_type: Type of executor.
-
-        Returns:
-            Executor instance.
-
-        Raises:
-            ValueError: If executor type is not supported for breakdown.
-        """
+        """Get executor for the given type."""
         if executor_type == ExecutorType.PATCH_AGENT:
-            raise ValueError("patch_agent is not supported for task breakdown. Use CLI executors.")
+            raise ValueError(
+                "patch_agent is not supported for task breakdown. Use CLI executors."
+            )
 
         executor = self._executors.get(executor_type)
         if not executor:
@@ -160,47 +161,66 @@ class BreakdownService:
 
         return executor
 
-    async def breakdown(
+    async def start_breakdown(
         self,
         request: TaskBreakdownRequest,
     ) -> TaskBreakdownResponse:
-        """Break down hearing content into development tasks.
+        """Start breakdown in background and return immediately.
 
         Args:
             request: Breakdown request with content, executor type, and repo ID.
 
         Returns:
-            TaskBreakdownResponse with broken down tasks.
+            TaskBreakdownResponse with RUNNING status and breakdown_id.
         """
         breakdown_id = str(uuid.uuid4())
         logger.info(f"Starting breakdown {breakdown_id} for repo {request.repo_id}")
 
-        try:
-            # Get repository
-            repo = await self.repo_dao.get(request.repo_id)
-            if not repo:
-                return TaskBreakdownResponse(
-                    breakdown_id=breakdown_id,
-                    status=BreakdownStatus.FAILED,
-                    tasks=[],
-                    summary=None,
-                    original_content=request.content,
-                    error=f"Repository not found: {request.repo_id}",
-                )
+        # Get repository first to validate
+        repo = await self.repo_dao.get(request.repo_id)
+        if not repo:
+            return TaskBreakdownResponse(
+                breakdown_id=breakdown_id,
+                status=BreakdownStatus.FAILED,
+                tasks=[],
+                summary=None,
+                original_content=request.content,
+                error=f"Repository not found: {request.repo_id}",
+            )
 
-            # Execute breakdown
+        # Create initial response with RUNNING status
+        initial_response = TaskBreakdownResponse(
+            breakdown_id=breakdown_id,
+            status=BreakdownStatus.RUNNING,
+            tasks=[],
+            summary=None,
+            original_content=request.content,
+        )
+        self._results[breakdown_id] = initial_response
+
+        # Start background task
+        asyncio.create_task(self._run_breakdown(breakdown_id, repo, request))
+
+        return initial_response
+
+    async def _run_breakdown(
+        self,
+        breakdown_id: str,
+        repo: Repo,
+        request: TaskBreakdownRequest,
+    ) -> None:
+        """Run breakdown in background."""
+        try:
             result = await self._execute_breakdown(
                 breakdown_id=breakdown_id,
                 repo=repo,
                 request=request,
             )
-
-            return result
-
+            self._results[breakdown_id] = result
         except Exception as e:
             logger.exception(f"Breakdown {breakdown_id} failed: {e}")
             await self.output_manager.mark_complete(breakdown_id)
-            return TaskBreakdownResponse(
+            self._results[breakdown_id] = TaskBreakdownResponse(
                 breakdown_id=breakdown_id,
                 status=BreakdownStatus.FAILED,
                 tasks=[],
@@ -209,22 +229,24 @@ class BreakdownService:
                 error=str(e),
             )
 
+    async def get_result(self, breakdown_id: str) -> TaskBreakdownResponse | None:
+        """Get breakdown result by ID.
+
+        Args:
+            breakdown_id: Breakdown session ID.
+
+        Returns:
+            TaskBreakdownResponse or None if not found.
+        """
+        return self._results.get(breakdown_id)
+
     async def _execute_breakdown(
         self,
         breakdown_id: str,
         repo: Repo,
         request: TaskBreakdownRequest,
     ) -> TaskBreakdownResponse:
-        """Execute the breakdown using the selected executor.
-
-        Args:
-            breakdown_id: Unique breakdown session ID.
-            repo: Repository to analyze.
-            request: Breakdown request.
-
-        Returns:
-            TaskBreakdownResponse with results.
-        """
+        """Execute the breakdown using the selected executor."""
         executor = self._get_executor(request.executor_type)
         workspace_path = Path(repo.workspace_path)
 
@@ -304,15 +326,7 @@ class BreakdownService:
         result_file: Path,
         logs: list[str],
     ) -> tuple[list[BrokenDownTask], CodebaseAnalysis | None] | None:
-        """Parse breakdown result from file or logs.
-
-        Args:
-            result_file: Path to the result JSON file.
-            logs: Execution logs (fallback for finding JSON).
-
-        Returns:
-            Tuple of (tasks, codebase_analysis) or None if parsing failed.
-        """
+        """Parse breakdown result from file or logs."""
         json_data: dict[str, Any] | None = None
 
         # Try to read from file first
@@ -335,14 +349,7 @@ class BreakdownService:
         return self._parse_json_data(json_data)
 
     def _extract_json_from_logs(self, logs: list[str]) -> dict[str, Any] | None:
-        """Extract JSON from execution logs.
-
-        Args:
-            logs: List of log lines.
-
-        Returns:
-            Parsed JSON data or None.
-        """
+        """Extract JSON from execution logs."""
         # Join logs and look for JSON block
         combined = "\n".join(logs)
 
@@ -359,7 +366,6 @@ class BreakdownService:
                 continue
 
         # Try to find raw JSON object
-        # Look for pattern starting with { and containing "tasks"
         raw_json_pattern = r'(\{\s*"(?:codebase_analysis|tasks)"[\s\S]*\})'
         matches = re.findall(raw_json_pattern, combined)
 
@@ -376,14 +382,7 @@ class BreakdownService:
     def _parse_json_data(
         self, data: dict[str, Any]
     ) -> tuple[list[BrokenDownTask], CodebaseAnalysis | None]:
-        """Parse JSON data into structured models.
-
-        Args:
-            data: Raw JSON data.
-
-        Returns:
-            Tuple of (tasks, codebase_analysis).
-        """
+        """Parse JSON data into structured models."""
         tasks: list[BrokenDownTask] = []
         codebase_analysis: CodebaseAnalysis | None = None
 
@@ -398,14 +397,12 @@ class BreakdownService:
 
         # Parse tasks
         for task_data in data.get("tasks", []):
-            # Parse type with fallback
             task_type_str = task_data.get("type", "feature")
             try:
                 task_type = BrokenDownTaskType(task_type_str)
             except ValueError:
                 task_type = BrokenDownTaskType.FEATURE
 
-            # Parse size with fallback
             size_str = task_data.get("estimated_size", "medium")
             try:
                 estimated_size = EstimatedSize(size_str)
@@ -430,15 +427,7 @@ class BreakdownService:
         breakdown_id: str,
         from_line: int = 0,
     ) -> tuple[list[dict[str, Any]], bool]:
-        """Get breakdown logs.
-
-        Args:
-            breakdown_id: Breakdown session ID.
-            from_line: Line number to start from.
-
-        Returns:
-            Tuple of (logs, is_complete).
-        """
+        """Get breakdown logs."""
         history = await self.output_manager.get_history(breakdown_id, from_line)
         is_complete = await self.output_manager.is_complete(breakdown_id)
 
