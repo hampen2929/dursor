@@ -2,6 +2,7 @@
 
 from dursor_api.routes.breakdown import router as breakdown_router
 from dursor_api.routes.github import router as github_router
+from dursor_api.routes.kanban import router as kanban_router
 from dursor_api.routes.models import router as models_router
 from dursor_api.routes.preferences import router as preferences_router
 from dursor_api.routes.prs import router as prs_router
@@ -12,6 +13,7 @@ from dursor_api.routes.tasks import router as tasks_router
 __all__ = [
     "breakdown_router",
     "github_router",
+    "kanban_router",
     "models_router",
     "preferences_router",
     "repos_router",
