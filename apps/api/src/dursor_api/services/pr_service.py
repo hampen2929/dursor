@@ -345,7 +345,7 @@ class PRService:
         return PRCreateLink(url=url, branch=run.working_branch, base=base)
 
     async def create_link_auto(self, task_id: str, data: PRCreateAuto) -> PRCreateLink:
-        """Generate a GitHub compare URL for manual PR creation (auto title/body omitted)."""
+        """Generate a GitHub compare URL with AI-generated title and description."""
         task = await self.task_dao.get(task_id)
         if not task:
             raise ValueError(f"Task not found: {task_id}")
@@ -364,12 +364,37 @@ class PRService:
         owner, repo_name = self._parse_github_url(repo_obj.repo_url)
         await self._ensure_branch_pushed(owner=owner, repo=repo_name, repo_obj=repo_obj, run=run)
 
+        # Get diff for AI generation
+        diff = ""
+        if run.worktree_path:
+            worktree_path = Path(run.worktree_path)
+            if worktree_path.exists():
+                diff = await self.git_service.get_diff_from_base(
+                    worktree_path,
+                    base_ref=run.base_ref or repo_obj.default_branch,
+                )
+        if not diff and run.patch:
+            diff = run.patch
+
+        # Generate title and description with AI
+        title = await self._generate_title(diff, task, run)
+        template = await self._load_pr_template(repo_obj)
+        description = await self._generate_description_for_new_pr(
+            diff=diff,
+            template=template,
+            task=task,
+            title=title,
+            run=run,
+        )
+
         base = repo_obj.default_branch
         url = self._build_github_compare_url(
             owner=owner,
             repo=repo_name,
             base=base,
             head=run.working_branch,
+            title=title,
+            body=description,
         )
         return PRCreateLink(url=url, branch=run.working_branch, base=base)
 
