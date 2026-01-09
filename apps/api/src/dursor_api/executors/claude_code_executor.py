@@ -134,11 +134,13 @@ class ClaudeCodeExecutor:
         # Use --dangerously-skip-permissions to allow edits without prompts in automated mode
         # Use --output-format stream-json for streaming output with structured JSON
         # This enables session_id extraction from the result message
+        # Note: --verbose is required when using --output-format=stream-json with -p
         cmd = [
             self.options.claude_cli_path,
             "-p",
             instruction,  # Pass instruction directly as argument
             "--dangerously-skip-permissions",  # Allow file edits without permission prompts
+            "--verbose",  # Required for stream-json with -p mode
             "--output-format",
             "stream-json",  # Streaming JSON for session_id extraction
         ]
