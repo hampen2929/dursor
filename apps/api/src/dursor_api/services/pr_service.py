@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse
@@ -561,6 +562,8 @@ DO NOT edit any files. Only output the title text.
     ) -> str | None:
         """Execute Agent Tool to generate PR description.
 
+        Writes the result to a temp file in /tmp and reads it back.
+
         Args:
             worktree_path: Path to the worktree.
             executor_type: Type of executor to use.
@@ -569,39 +572,43 @@ DO NOT edit any files. Only output the title text.
         Returns:
             Generated description or None if failed.
         """
-        # Wrap the prompt to ensure the executor only outputs text, no file edits
-        wrapped_prompt = f"""DO NOT edit any files. Only output text.
+        # Create a unique temp file path (outside worktree)
+        temp_file = Path(f"/tmp/dursor_pr_desc_{uuid.uuid4().hex}.md")
 
-{prompt}
+        # Wrap the prompt to write output to the temp file
+        wrapped_prompt = f"""{prompt}
 
-IMPORTANT: Output ONLY the PR description text. Do not create or modify any files."""
+IMPORTANT INSTRUCTIONS:
+1. Write the PR description to this file: {temp_file}
+2. Do NOT modify any other files in the repository
+3. The file should contain ONLY the PR description content"""
 
-        if executor_type == ExecutorType.CLAUDE_CODE:
-            result = await self.claude_executor.execute(worktree_path, wrapped_prompt)
-        elif executor_type == ExecutorType.CODEX_CLI:
-            result = await self.codex_executor.execute(worktree_path, wrapped_prompt)
-        elif executor_type == ExecutorType.GEMINI_CLI:
-            result = await self.gemini_executor.execute(worktree_path, wrapped_prompt)
-        else:
-            logger.warning(f"Unsupported executor type for description: {executor_type}")
-            return None
+        try:
+            if executor_type == ExecutorType.CLAUDE_CODE:
+                result = await self.claude_executor.execute(worktree_path, wrapped_prompt)
+            elif executor_type == ExecutorType.CODEX_CLI:
+                result = await self.codex_executor.execute(worktree_path, wrapped_prompt)
+            elif executor_type == ExecutorType.GEMINI_CLI:
+                result = await self.gemini_executor.execute(worktree_path, wrapped_prompt)
+            else:
+                logger.warning(f"Unsupported executor type for description: {executor_type}")
+                return None
 
-        if not result.success:
-            logger.warning(f"Executor failed: {result.error}")
-            return None
+            if not result.success:
+                logger.warning(f"Executor failed: {result.error}")
+                return None
 
-        # Extract the description from executor output (logs)
-        # Filter out system messages and keep the actual content
-        output_lines = []
-        for line in result.logs:
-            # Skip common CLI output prefixes
-            if line.startswith("Executing:") or line.startswith("Working directory:"):
-                continue
-            if line.startswith("Instruction length:"):
-                continue
-            output_lines.append(line)
-
-        return "\n".join(output_lines).strip() if output_lines else None
+            # Read the generated description from temp file
+            if temp_file.exists():
+                description = temp_file.read_text().strip()
+                return description if description else None
+            else:
+                logger.warning(f"Temp file not created: {temp_file}")
+                return None
+        finally:
+            # Clean up temp file
+            if temp_file.exists():
+                temp_file.unlink()
 
     def _build_description_prompt_for_new_pr(
         self,
