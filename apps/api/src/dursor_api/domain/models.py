@@ -14,6 +14,7 @@ from dursor_api.domain.enums import (
     PRCreationMode,
     Provider,
     RunStatus,
+    TaskStatus,
 )
 
 # ============================================================
@@ -81,6 +82,14 @@ class TaskCreate(BaseModel):
 
     repo_id: str
     title: str | None = None
+    status: TaskStatus = TaskStatus.BACKLOG
+
+
+class TaskUpdate(BaseModel):
+    """Request for updating a Task."""
+
+    status: TaskStatus | None = None
+    title: str | None = None
 
 
 class Task(BaseModel):
@@ -89,6 +98,7 @@ class Task(BaseModel):
     id: str
     repo_id: str
     title: str | None
+    status: TaskStatus = TaskStatus.BACKLOG
     created_at: datetime
     updated_at: datetime
 

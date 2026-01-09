@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     repo_id TEXT NOT NULL REFERENCES repos(id),
     title TEXT,
+    status TEXT NOT NULL DEFAULT 'backlog',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

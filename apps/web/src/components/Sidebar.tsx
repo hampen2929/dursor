@@ -11,6 +11,7 @@ import { TaskListSkeleton } from './ui/Skeleton';
 import {
   PlusIcon,
   SparklesIcon,
+  ViewColumnsIcon,
   UserCircleIcon,
   Cog6ToothIcon,
   ChevronUpIcon,
@@ -132,6 +133,18 @@ export default function Sidebar({ onSettingsClick, onBreakdownClick }: SidebarPr
           <SparklesIcon className="w-4 h-4" />
           Breakdown
         </button>
+        <Link
+          href="/kanban"
+          className={cn(
+            'flex items-center justify-center gap-2 w-full py-2.5 px-3',
+            'bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-700',
+            'text-sm font-medium transition-colors',
+            'focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-gray-900'
+          )}
+        >
+          <ViewColumnsIcon className="w-4 h-4" />
+          Kanban Board
+        </Link>
       </div>
 
       {/* Search and Filter */}

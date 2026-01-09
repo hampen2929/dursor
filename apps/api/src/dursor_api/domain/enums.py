@@ -70,3 +70,14 @@ class EstimatedSize(str, Enum):
     SMALL = "small"
     MEDIUM = "medium"
     LARGE = "large"
+
+
+class TaskStatus(str, Enum):
+    """Task status for Kanban board."""
+
+    BACKLOG = "backlog"
+    TODO = "todo"
+    IN_PROGRESS = "in_progress"
+    IN_REVIEW = "in_review"
+    DONE = "done"
+    ARCHIVED = "archived"

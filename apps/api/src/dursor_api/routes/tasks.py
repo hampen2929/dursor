@@ -13,6 +13,7 @@ from dursor_api.domain.models import (
     TaskBulkCreated,
     TaskCreate,
     TaskDetail,
+    TaskUpdate,
 )
 from dursor_api.storage.dao import PRDAO, MessageDAO, RunDAO, TaskDAO
 
@@ -25,7 +26,7 @@ async def create_task(
     task_dao: TaskDAO = Depends(get_task_dao),
 ) -> Task:
     """Create a new task."""
-    return await task_dao.create(repo_id=data.repo_id, title=data.title)
+    return await task_dao.create(repo_id=data.repo_id, title=data.title, status=data.status)
 
 
 @router.get("", response_model=list[Task])
@@ -126,6 +127,23 @@ async def list_messages(
         raise HTTPException(status_code=404, detail="Task not found")
 
     return await message_dao.list(task_id)
+
+
+@router.patch("/{task_id}", response_model=Task)
+async def update_task(
+    task_id: str,
+    data: TaskUpdate,
+    task_dao: TaskDAO = Depends(get_task_dao),
+) -> Task:
+    """Update a task."""
+    task = await task_dao.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if data.status:
+        await task_dao.update_status(task_id, data.status)
+
+    return await task_dao.get(task_id)
 
 
 @router.post("/bulk", response_model=TaskBulkCreated, status_code=201)

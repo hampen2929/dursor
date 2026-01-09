@@ -14,6 +14,7 @@ from dursor_api.domain.enums import (
     PRCreationMode,
     Provider,
     RunStatus,
+    TaskStatus,
 )
 from dursor_api.domain.models import (
     PR,
@@ -187,17 +188,22 @@ class TaskDAO:
     def __init__(self, db: Database):
         self.db = db
 
-    async def create(self, repo_id: str, title: str | None = None) -> Task:
+    async def create(
+        self,
+        repo_id: str,
+        title: str | None = None,
+        status: TaskStatus = TaskStatus.BACKLOG,
+    ) -> Task:
         """Create a new task."""
         id = generate_id()
         now = now_iso()
 
         await self.db.connection.execute(
             """
-            INSERT INTO tasks (id, repo_id, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO tasks (id, repo_id, title, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (id, repo_id, title, now, now),
+            (id, repo_id, title, status.value, now, now),
         )
         await self.db.connection.commit()
 
@@ -205,6 +211,7 @@ class TaskDAO:
             id=id,
             repo_id=repo_id,
             title=title,
+            status=status,
             created_at=datetime.fromisoformat(now),
             updated_at=datetime.fromisoformat(now),
         )
@@ -239,11 +246,26 @@ class TaskDAO:
         )
         await self.db.connection.commit()
 
+    async def update_status(self, id: str, status: TaskStatus) -> None:
+        """Update task status."""
+        await self.db.connection.execute(
+            "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
+            (status.value, now_iso(), id),
+        )
+        await self.db.connection.commit()
+
     def _row_to_model(self, row: Any) -> Task:
+        # Handle status for existing records (default to BACKLOG if NULL/missing)
+        status_val = (
+            row["status"]
+            if "status" in row.keys() and row["status"]
+            else TaskStatus.BACKLOG.value
+        )
         return Task(
             id=row["id"],
             repo_id=row["repo_id"],
             title=row["title"],
+            status=TaskStatus(status_val),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )

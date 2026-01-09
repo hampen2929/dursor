@@ -11,6 +11,7 @@ import type {
   Task,
   TaskCreate,
   TaskDetail,
+  TaskUpdate,
   TaskBulkCreate,
   TaskBulkCreated,
   TaskBreakdownRequest,
@@ -130,6 +131,12 @@ export const tasksApi = {
   create: (data: TaskCreate) =>
     fetchApi<Task>('/tasks', {
       method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (taskId: string, data: TaskUpdate) =>
+    fetchApi<Task>(`/tasks/${taskId}`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     }),
 

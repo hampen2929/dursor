@@ -8,6 +8,7 @@ export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancele
 export type MessageRole = 'user' | 'assistant' | 'system';
 export type ExecutorType = 'patch_agent' | 'claude_code' | 'codex_cli' | 'gemini_cli';
 export type PRCreationMode = 'create' | 'link';
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'archived';
 
 // Model Profile
 export interface ModelProfile {
@@ -45,12 +46,19 @@ export interface Task {
   id: string;
   repo_id: string;
   title: string | null;
+  status: TaskStatus;
   created_at: string;
   updated_at: string;
 }
 
 export interface TaskCreate {
   repo_id: string;
+  title?: string;
+  status?: TaskStatus;
+}
+
+export interface TaskUpdate {
+  status?: TaskStatus;
   title?: string;
 }
 
