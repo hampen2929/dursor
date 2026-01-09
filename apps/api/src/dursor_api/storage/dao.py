@@ -245,9 +245,7 @@ class TaskDAO:
         )
         await self.db.connection.commit()
 
-    async def update_kanban_status(
-        self, task_id: str, status: TaskBaseKanbanStatus
-    ) -> None:
+    async def update_kanban_status(self, task_id: str, status: TaskBaseKanbanStatus) -> None:
         """Update task kanban status (backlog/todo/archived only)."""
         await self.db.connection.execute(
             "UPDATE tasks SET kanban_status = ?, updated_at = ? WHERE id = ?",
@@ -311,29 +309,27 @@ class TaskDAO:
         result: builtins.list[dict[str, Any]] = []
         for row in rows:
             # Handle kanban_status for backward compatibility
-            kanban_status = (
-                row["kanban_status"] if "kanban_status" in row.keys() else "backlog"
+            kanban_status = row["kanban_status"] if "kanban_status" in row.keys() else "backlog"
+            result.append(
+                {
+                    "id": row["id"],
+                    "repo_id": row["repo_id"],
+                    "title": row["title"],
+                    "kanban_status": kanban_status,
+                    "created_at": datetime.fromisoformat(row["created_at"]),
+                    "updated_at": datetime.fromisoformat(row["updated_at"]),
+                    "run_count": row["run_count"],
+                    "running_count": row["running_count"],
+                    "completed_count": row["completed_count"],
+                    "pr_count": row["pr_count"],
+                    "latest_pr_status": row["latest_pr_status"],
+                }
             )
-            result.append({
-                "id": row["id"],
-                "repo_id": row["repo_id"],
-                "title": row["title"],
-                "kanban_status": kanban_status,
-                "created_at": datetime.fromisoformat(row["created_at"]),
-                "updated_at": datetime.fromisoformat(row["updated_at"]),
-                "run_count": row["run_count"],
-                "running_count": row["running_count"],
-                "completed_count": row["completed_count"],
-                "pr_count": row["pr_count"],
-                "latest_pr_status": row["latest_pr_status"],
-            })
         return result
 
     def _row_to_model(self, row: Any) -> Task:
         # Handle kanban_status for backward compatibility
-        kanban_status = (
-            row["kanban_status"] if "kanban_status" in row.keys() else "backlog"
-        )
+        kanban_status = row["kanban_status"] if "kanban_status" in row.keys() else "backlog"
         return Task(
             id=row["id"],
             repo_id=row["repo_id"],

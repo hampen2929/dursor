@@ -112,9 +112,7 @@ class KanbanService:
 
         # Only allow moving from backlog
         if task.kanban_status != "backlog":
-            raise ValueError(
-                f"Can only move from backlog to todo, current: {task.kanban_status}"
-            )
+            raise ValueError(f"Can only move from backlog to todo, current: {task.kanban_status}")
 
         await self.task_dao.update_kanban_status(task_id, TaskBaseKanbanStatus.TODO)
         updated_task = await self.task_dao.get(task_id)
@@ -191,9 +189,7 @@ class KanbanService:
         repo = url_parts[-3]
 
         # Get PR status from GitHub
-        pr_data = await self.github_service.get_pull_request_status(
-            owner, repo, pr.number
-        )
+        pr_data = await self.github_service.get_pull_request_status(owner, repo, pr.number)
 
         # Determine status
         new_status: str
