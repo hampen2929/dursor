@@ -234,10 +234,11 @@ class PRTemplateService:
     ) -> str:
         """Compose PR body using template and generated content.
 
-        This uses the dursor block approach for non-destructive composition:
-        - Template structure is fully preserved
-        - Generated content is wrapped in dursor markers
-        - Insertion point is after YAML frontmatter (if present) or at the beginning
+        Strategy:
+        1. Find Summary or Description section in template
+        2. Insert generated content into that section (replacing HTML comment)
+        3. Wrap inserted content in dursor markers for tracking
+        4. Preserve the rest of the template structure
 
         Args:
             template: The PR template content.
@@ -245,7 +246,7 @@ class PRTemplateService:
             title: Optional PR title.
 
         Returns:
-            Composed PR body with dursor block.
+            Composed PR body with generated content in appropriate section.
         """
         template = template.replace("\r\n", "\n").strip()
         generated_content = generated_content.strip()
@@ -256,20 +257,86 @@ class PRTemplateService:
         if not generated_content:
             return template
 
-        # Build the dursor block content
+        # Try to find Summary or Description section and insert content there
+        result = self._insert_into_section(template, generated_content)
+        if result:
+            return result
+
+        # Fallback: If no suitable section found, prepend with dursor block
         dursor_block = self._wrap_in_dursor_block(generated_content)
 
         # Check for YAML frontmatter
         frontmatter_match = re.match(r"^---\n.*?\n---\n?", template, re.DOTALL)
 
         if frontmatter_match:
-            # Insert after frontmatter
             frontmatter = frontmatter_match.group(0)
             rest = template[len(frontmatter) :].lstrip()
             return f"{frontmatter}\n{dursor_block}\n\n{rest}".strip()
         else:
-            # Insert at beginning
             return f"{dursor_block}\n\n{template}".strip()
+
+    def _insert_into_section(self, template: str, content: str) -> str | None:
+        """Insert content into the Summary or Description section of a template.
+
+        Finds the first Summary/Description heading and replaces the HTML comment
+        placeholder (if any) with the generated content wrapped in dursor markers.
+
+        Args:
+            template: The PR template content.
+            content: Content to insert.
+
+        Returns:
+            Modified template with content inserted, or None if no suitable section found.
+        """
+        # Pattern to find Summary or Description headings (any level, any language variant)
+        # Supports: ## Summary, ## Description, ## 概要, ## 📝 Description, etc.
+        heading_pattern = re.compile(
+            r"^(#{1,6}\s+(?:summary|description|概要|説明|📝\s*description)\s*)$",
+            re.IGNORECASE | re.MULTILINE,
+        )
+
+        match = heading_pattern.search(template)
+        if not match:
+            return None
+
+        heading = match.group(0)
+        heading_end = match.end()
+
+        # Find the next heading (same level or higher)
+        heading_level_match = re.match(r"(#{1,6})", heading)
+        if not heading_level_match:
+            return None
+
+        level = len(heading_level_match.group(1))
+
+        # Find next heading with level <= current level
+        next_heading_pattern = re.compile(rf"^#{{1,{level}}}\s+\S", re.MULTILINE)
+        next_match = next_heading_pattern.search(template, pos=heading_end)
+        section_end = next_match.start() if next_match else len(template)
+
+        # Get the section content between heading and next heading
+        section_content = template[heading_end:section_end]
+
+        # Create new section content with dursor-wrapped generated content
+        # Replace HTML comments with empty string, then add our content
+        cleaned_section = re.sub(r"<!--.*?-->", "", section_content, flags=re.DOTALL)
+        cleaned_section = cleaned_section.strip()
+
+        # Build new section: heading + newline + dursor block + (any remaining content)
+        dursor_content = self._wrap_in_dursor_block(content)
+
+        if cleaned_section:
+            # There's existing content after removing comments, keep it below
+            new_section = f"\n{dursor_content}\n\n{cleaned_section}\n\n"
+        else:
+            # Section was empty (just comments), replace with our content
+            new_section = f"\n{dursor_content}\n\n"
+
+        # Reconstruct the template
+        before = template[:heading_end]
+        after = template[section_end:]
+
+        return f"{before}{new_section}{after}".strip()
 
     def _wrap_in_dursor_block(self, content: str) -> str:
         """Wrap content in dursor block markers.
