@@ -47,10 +47,8 @@ export default function Sidebar({ onSettingsClick }: SidebarProps) {
 
     let result = [...tasks];
 
-    // Filter by kanban status - only show in_progress and in_review tasks
-    result = result.filter(
-      (task) => task.kanban_status === 'in_progress' || task.kanban_status === 'in_review'
-    );
+    // Filter by kanban status - hide archived tasks
+    result = result.filter((task) => task.kanban_status !== 'archived');
 
     // Filter by search query
     if (searchQuery.trim()) {
