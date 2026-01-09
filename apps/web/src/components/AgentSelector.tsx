@@ -109,9 +109,9 @@ export function AgentSelector({
         />
       </button>
 
-      {/* Dropdown */}
+      {/* Dropdown - opens downward */}
       {showDropdown && (
-        <div className="absolute bottom-full left-0 mb-2 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <div className="absolute top-full left-0 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-20 animate-in fade-in slide-in-from-top-2 duration-200">
           {/* Multi-agent Toggle */}
           <div className="p-3 border-b border-gray-700">
             <label className="flex items-center justify-between cursor-pointer">
