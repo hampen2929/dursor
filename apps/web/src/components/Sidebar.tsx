@@ -47,6 +47,9 @@ export default function Sidebar({ onSettingsClick }: SidebarProps) {
 
     let result = [...tasks];
 
+    // Filter by kanban status - hide archived tasks
+    result = result.filter((task) => task.kanban_status !== 'archived');
+
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
