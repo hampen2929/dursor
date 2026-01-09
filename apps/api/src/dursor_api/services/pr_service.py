@@ -552,7 +552,8 @@ class PRService:
         truncated_diff = diff[:10000] if len(diff) > 10000 else diff
 
         prompt_parts = [
-            "Create a PR Title and Description based on the following template and changes.",
+            "Create a PR Description based on the template, user instruction, and diff below.",
+            "Fill in ALL sections of the template with appropriate content.",
             "",
             "## User Instruction",
             task.title or "(None)",
@@ -571,18 +572,23 @@ class PRService:
                     "```markdown",
                     template,
                     "```",
+                    "",
+                    "## Rules",
+                    "- Fill in each section of the template with actual content",
+                    "- Replace placeholders and HTML comments with real content",
+                    "- Keep the template structure (headings, checkboxes, etc.)",
+                    "- Base all content on the user instruction and diff",
                 ]
             )
-
-        prompt_parts.extend(
-            [
-                "",
-                "## Output Rules",
-                "- Output ONLY the PR Description (not the title)",
-                "- Follow the template structure if provided",
-                "- Base the content on the user instruction and the diff",
-            ]
-        )
+        else:
+            prompt_parts.extend(
+                [
+                    "",
+                    "## Rules",
+                    "- Create a concise PR description",
+                    "- Base the content on the user instruction and diff",
+                ]
+            )
 
         return "\n".join(prompt_parts)
 
@@ -941,7 +947,8 @@ class PRService:
         truncated_diff = diff[:10000] if len(diff) > 10000 else diff
 
         prompt_parts = [
-            "Create a PR Description based on the following template and changes.",
+            "Create a PR Description based on the template, user instruction, and diff below.",
+            "Fill in ALL sections of the template with appropriate content.",
             "",
             "## User Instruction",
             task.title or "(None)",
@@ -960,18 +967,23 @@ class PRService:
                     "```markdown",
                     template,
                     "```",
+                    "",
+                    "## Rules",
+                    "- Fill in each section of the template with actual content",
+                    "- Replace placeholders and HTML comments with real content",
+                    "- Keep the template structure (headings, checkboxes, etc.)",
+                    "- Base all content on the user instruction and diff",
                 ]
             )
-
-        prompt_parts.extend(
-            [
-                "",
-                "## Output Rules",
-                "- Output ONLY the PR Description",
-                "- Follow the template structure if provided",
-                "- Base the content on the user instruction and the diff",
-            ]
-        )
+        else:
+            prompt_parts.extend(
+                [
+                    "",
+                    "## Rules",
+                    "- Create a concise PR description",
+                    "- Base the content on the user instruction and diff",
+                ]
+            )
 
         return "\n".join(prompt_parts)
 
