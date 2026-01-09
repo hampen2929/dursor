@@ -49,6 +49,59 @@ class ClaudeCodeExecutor:
         """
         self.options = options or ClaudeCodeOptions()
 
+    def _extract_display_text(self, json_line: str) -> str | None:
+        """Extract human-readable text from a stream-json line.
+
+        Stream-json format outputs JSON objects with different types:
+        - {"type": "assistant", "message": {"content": [{"text": "..."}]}}
+        - {"type": "system", "message": "..."}
+        - {"type": "result", ...}
+
+        Args:
+            json_line: A single line of stream-json output.
+
+        Returns:
+            Human-readable text for display, or None if not displayable.
+        """
+        try:
+            data = json.loads(json_line)
+            if not isinstance(data, dict):
+                return json_line
+
+            msg_type = data.get("type")
+
+            # Assistant messages contain the main content
+            if msg_type == "assistant":
+                message = data.get("message", {})
+                if isinstance(message, dict):
+                    content = message.get("content", [])
+                    if isinstance(content, list):
+                        texts = []
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                texts.append(block.get("text", ""))
+                        if texts:
+                            return "".join(texts)
+                return None
+
+            # System messages (e.g., init info)
+            if msg_type == "system":
+                message = data.get("message", "")
+                if isinstance(message, str) and message:
+                    return f"[system] {message}"
+                return None
+
+            # Result message - don't display raw JSON
+            if msg_type == "result":
+                return None
+
+            # Unknown type - return as-is for debugging
+            return None
+
+        except json.JSONDecodeError:
+            # Not JSON, return as-is
+            return json_line
+
     async def execute(
         self,
         worktree_path: Path,
@@ -79,18 +132,23 @@ class ClaudeCodeExecutor:
         # Use --print (-p) for non-interactive mode with instruction as argument
         # Note: Using create_subprocess_exec avoids shell escaping issues
         # Use --dangerously-skip-permissions to allow edits without prompts in automated mode
-        # Note: We do NOT use --output-format json as it suppresses streaming output
+        # Use --output-format stream-json for streaming output with structured JSON
+        # This enables session_id extraction from the result message
+        # Note: --verbose is required when using --output-format=stream-json with -p
         cmd = [
             self.options.claude_cli_path,
             "-p",
             instruction,  # Pass instruction directly as argument
             "--dangerously-skip-permissions",  # Allow file edits without permission prompts
+            "--verbose",  # Required for stream-json with -p mode
+            "--output-format",
+            "stream-json",  # Streaming JSON for session_id extraction
         ]
 
-        # Add --session-id flag if we have a previous session ID
-        # Note: Use --session-id (not --resume) to continue conversation in -p mode
+        # Add --resume flag if we have a previous session ID
+        # Note: Use --resume (not --session-id) to continue conversation
         if resume_session_id:
-            cmd.extend(["--session-id", resume_session_id])
+            cmd.extend(["--resume", resume_session_id])
             logs.append(f"Continuing session: {resume_session_id}")
 
         # Don't log full instruction - it can be very long
@@ -158,7 +216,10 @@ class ClaudeCodeExecutor:
 
                     if len(output_lines) <= self.options.max_output_lines:
                         if on_output:
-                            await on_output(decoded)
+                            # Extract human-readable text from stream-json
+                            display_text = self._extract_display_text(decoded)
+                            if display_text:
+                                await on_output(display_text)
                 logger.info(f"Finished reading output: {line_count} lines total")
 
             try:
@@ -233,10 +294,12 @@ class ClaudeCodeExecutor:
     def _extract_session_id(self, output_lines: list[str]) -> str | None:
         """Extract session ID from Claude CLI output.
 
-        Claude CLI outputs session information in various formats:
-        - JSON: {"session_id": "uuid"}
-        - Text: "Session ID: uuid" or "session: uuid"
-        - Hint: "To continue, use --session-id uuid"
+        With --output-format stream-json, Claude CLI outputs JSON lines:
+        - {"type": "system", "message": "..."}
+        - {"type": "assistant", "message": {...}}
+        - {"type": "result", "session_id": "uuid", ...}
+
+        The session_id is in the final "result" type message.
 
         Args:
             output_lines: Output lines from Claude CLI execution.
@@ -244,13 +307,18 @@ class ClaudeCodeExecutor:
         Returns:
             Session ID if found, None otherwise.
         """
-        uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-
-        # Try JSON parsing first (in case output contains JSON)
-        for line in output_lines:
+        # Primary: Look for stream-json "result" message with session_id
+        # Search from the end since "result" is the final message
+        for line in reversed(output_lines):
             try:
                 data = json.loads(line)
                 if isinstance(data, dict):
+                    # stream-json format: {"type": "result", "session_id": "..."}
+                    if data.get("type") == "result" and "session_id" in data:
+                        session_id = data["session_id"]
+                        logger.info(f"Extracted session_id from result: {session_id}")
+                        return str(session_id)
+                    # Alternative field names
                     if "session_id" in data:
                         return str(data["session_id"])
                     if "sessionId" in data:
@@ -258,12 +326,13 @@ class ClaudeCodeExecutor:
             except json.JSONDecodeError:
                 continue
 
-        # Search for session ID patterns in text output
+        # Fallback: Search for session ID patterns in text output
+        uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
         patterns = [
             # "Session ID: <uuid>" or "session_id: <uuid>"
             re.compile(r"session[_\s]?id[:\s]+(" + uuid_pattern + r")", re.IGNORECASE),
-            # "--session-id <uuid>" hint
-            re.compile(r"--session-id\s+(" + uuid_pattern + r")", re.IGNORECASE),
+            # "--resume <uuid>" or "--session-id <uuid>" hint
+            re.compile(r"--(?:resume|session-id)\s+(" + uuid_pattern + r")", re.IGNORECASE),
             # "session: <uuid>"
             re.compile(r"\bsession[:\s]+(" + uuid_pattern + r")", re.IGNORECASE),
         ]
@@ -274,13 +343,7 @@ class ClaudeCodeExecutor:
                 if match:
                     return match.group(1)
 
-        # Fallback: search combined output
-        combined = "\n".join(output_lines[-500:])  # Limit to avoid huge joins
-        for pattern in patterns:
-            match = pattern.search(combined)
-            if match:
-                return match.group(1)
-
+        logger.warning("Could not extract session_id from CLI output")
         return None
 
     async def cancel(self, process: asyncio.subprocess.Process) -> None:
