@@ -8,16 +8,15 @@ dursor をコーディングエージェントが**人間の承認なしに自�
 
 本設計は**完全自律**を目指す。CI失敗時も人間介入なしに自動修正を行う。
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  完全自律版 (Option B)                                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Claude Code → PR → CI失敗 → Claude Codeが自動修正 → CI → マージ │
-│                         ↑                                        │
-│                    dursor が制御                                 │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph dursor["dursor が制御"]
+        A[Claude Code] --> B[PR]
+        B --> C{CI}
+        C -->|失敗| D[Claude Code が自動修正]
+        D --> C
+        C -->|成功| E[マージ]
+    end
 ```
 
 ### 設計原則
@@ -39,18 +38,33 @@ dursor をコーディングエージェントが**人間の承認なしに自�
 | **GitHub Actions (CI)** | チェック実行、結果通知 | GitHub |
 | **dursor Orchestrator** | 失敗検知、自動修正、マージ制御 | dursor API |
 
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  GitHub Actions │     │     dursor      │     │   AI Agents     │
-│     (CI)        │     │  Orchestrator   │     │                 │
-├─────────────────┤     ├─────────────────┤     ├─────────────────┤
-│ ✓ テスト実行    │────▶│ ✓ 結果監視      │────▶│ ✓ コード生成    │
-│ ✓ Lint実行     │     │ ✓ 失敗時修正指示 │     │ ✓ 自動修正      │
-│ ✓ 型チェック    │◀────│ ✓ マージ判断    │◀────│ ✓ レビュー      │
-│ ✓ カバレッジ    │     │ ✓ イテレーション │     │                 │
-│ ✓ Codexレビュー │     │   管理          │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-      Webhook通知              制御中枢              実行部隊
+```mermaid
+flowchart LR
+    subgraph CI["GitHub Actions (CI)<br/>Webhook通知"]
+        CI1[テスト実行]
+        CI2[Lint実行]
+        CI3[型チェック]
+        CI4[カバレッジ]
+        CI5[Codexレビュー]
+    end
+
+    subgraph Orchestrator["dursor Orchestrator<br/>制御中枢"]
+        OR1[結果監視]
+        OR2[失敗時修正指示]
+        OR3[マージ判断]
+        OR4[イテレーション管理]
+    end
+
+    subgraph Agents["AI Agents<br/>実行部隊"]
+        AG1[コード生成]
+        AG2[自動修正]
+        AG3[レビュー]
+    end
+
+    CI --> Orchestrator
+    Orchestrator --> Agents
+    Agents --> Orchestrator
+    Orchestrator --> CI
 ```
 
 ### なぜdursorがオーケストレーションするのか
@@ -72,32 +86,39 @@ CIだけでは実現できない機能：
 
 ### システム全体像
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Agentic Dursor System                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                    AgenticOrchestrator                            │   │
-│  │  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐       │   │
-│  │  │ Task    │───▶│ Coding  │───▶│ Review  │───▶│ Merge   │       │   │
-│  │  │ Manager │    │ Phase   │    │ Phase   │    │ Phase   │       │   │
-│  │  └─────────┘    └────┬────┘    └────┬────┘    └────┬────┘       │   │
-│  └───────────────────────┼─────────────┼─────────────┼──────────────┘   │
-│                          │             │             │                   │
-│                          ▼             ▼             ▼                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
-│  │ Claude Code  │  │ CI Watcher   │  │ Codex        │  │ AutoMerge    │ │
-│  │ Executor     │  │ (Webhook)    │  │ Reviewer     │  │ Service      │ │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘ │
-│         │                 │                 │                 │          │
-└─────────┼─────────────────┼─────────────────┼─────────────────┼──────────┘
-          │                 │                 │                 │
-          ▼                 ▼                 ▼                 ▼
-    ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐
-    │ Claude   │      │ GitHub   │      │ Codex    │      │ GitHub   │
-    │ Code CLI │      │ Actions  │      │ CLI      │      │ API      │
-    └──────────┘      └──────────┘      └──────────┘      └──────────┘
+```mermaid
+flowchart TB
+    subgraph System["Agentic Dursor System"]
+        subgraph Orchestrator["AgenticOrchestrator"]
+            TM[Task Manager] --> CP[Coding Phase]
+            CP --> RP[Review Phase]
+            RP --> MP[Merge Phase]
+        end
+
+        subgraph Executors["Executors"]
+            CCE[Claude Code Executor]
+            CIW[CI Watcher<br/>Webhook]
+            CR[Codex Reviewer]
+            AMS[AutoMerge Service]
+        end
+
+        CP --> CCE
+        CP --> CIW
+        RP --> CR
+        MP --> AMS
+    end
+
+    subgraph External["External Services"]
+        CLI1[Claude Code CLI]
+        GHA[GitHub Actions]
+        CLI2[Codex CLI]
+        GHAPI[GitHub API]
+    end
+
+    CCE --> CLI1
+    CIW --> GHA
+    CR --> CLI2
+    AMS --> GHAPI
 ```
 
 ### Agent Role Distribution
@@ -977,38 +998,31 @@ flowchart TD
 
 ### Phase Transitions
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          State Transitions                               │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  CODING ──────────────────────────────────────────▶ WAITING_CI          │
-│     │                                                    │               │
-│     │                              ┌─────────────────────┴───────┐       │
-│     │                              │                             │       │
-│     │                              ▼                             ▼       │
-│     │                         FIXING_CI ◀──────────────── CI Failed     │
-│     │                              │                             │       │
-│     │                              │                       CI Passed     │
-│     │                              │                             │       │
-│     │                              │                             ▼       │
-│     │                              └────────────────────▶ REVIEWING      │
-│     │                                                          │         │
-│     │                              ┌───────────────────────────┴───┐     │
-│     │                              │                               │     │
-│     │                              ▼                               ▼     │
-│     │                       FIXING_REVIEW ◀───────────── Review Rejected│
-│     │                              │                               │     │
-│     │                              │                       Review Approved
-│     │                              │                               │     │
-│     │                              │                               ▼     │
-│     │                              └──────────────────────▶ MERGING      │
-│     │                                                          │         │
-│     │                                                          ▼         │
-│     ▼                                                     COMPLETED      │
-│  FAILED ◀───────────────── (iterations exceeded / unrecoverable error)  │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> CODING
+
+    CODING --> WAITING_CI: Push & Create PR
+
+    WAITING_CI --> FIXING_CI: CI Failed
+    WAITING_CI --> REVIEWING: CI Passed
+
+    FIXING_CI --> WAITING_CI: Fix & Push
+    FIXING_CI --> FAILED: Max iterations exceeded
+
+    REVIEWING --> FIXING_REVIEW: Review Rejected
+    REVIEWING --> MERGING: Review Approved
+
+    FIXING_REVIEW --> WAITING_CI: Fix & Push
+    FIXING_REVIEW --> FAILED: Max iterations exceeded
+
+    MERGING --> COMPLETED: Merge Success
+    MERGING --> FAILED: Merge Failed
+
+    CODING --> FAILED: Unrecoverable error
+
+    COMPLETED --> [*]
+    FAILED --> [*]
 ```
 
 ---
